@@ -1,57 +1,59 @@
 # nanolander
 
-> 帶著整套裝備降落在任何一台機器上。
+> Land on any machine with the whole kit.
 
-一支腳本，在 macOS、Ubuntu、Amazon Linux 2 與 Amazon Linux 2023 上安裝同一套現代終端機工具，並自動完成 shell 設定。套件庫有的用套件庫，沒有的抓官方 GitHub Release。
+One script that installs the same modern terminal toolchain on macOS, Ubuntu, Amazon Linux 2 and Amazon Linux 2023, then wires up the shell for you. It uses the distribution's package manager where the tool exists there, and falls back to the project's official GitHub release where it does not.
 
-| 項目 | 內容 |
+| Item | Detail |
 | --- | --- |
-| 主程式 | `bin/nanolander` |
-| 附加工具 | `bin/iterm-tune`（macOS 的 iTerm2 效能調校） |
-| 工具數量 | 44 |
-| 安裝來源 | 系統套件管理器優先，缺少時改用官方 GitHub Release |
-| 安裝位置 | 套件管理器預設路徑，或 `~/.local/bin` |
-| 日誌 | `~/nanolander-YYYYMMDD-HHMMSS.log` |
+| Main program | `bin/nanolander` |
+| Companion tool | `bin/iterm-tune` (iTerm2 performance tuning, macOS) |
+| Tools installed | 44 |
+| Install source | Package manager first, official GitHub release when missing |
+| Install location | The package manager's default path, or `~/.local/bin` |
+| Log | `~/nanolander-YYYYMMDD-HHMMSS.log` |
 
 ---
 
-## 目錄
+## Contents
 
-- [支援環境](#支援環境)
-- [快速開始](#快速開始)
-- [命令列選項](#命令列選項)
-- [安裝工具總覽](#安裝工具總覽)
-- [腳本內部功能說明](#腳本內部功能說明)
-- [Shell 設定變更內容](#shell-設定變更內容)
-- [日誌與回傳狀態](#日誌與回傳狀態)
-- [注意事項與疑難排解](#注意事項與疑難排解)
-- [本次更新內容](#本次更新內容)
+- [Supported platforms](#supported-platforms)
+- [Getting started](#getting-started)
+- [Command-line options](#command-line-options)
+- [Tool overview](#tool-overview)
+- [How the script works](#how-the-script-works)
+- [Shell configuration changes](#shell-configuration-changes)
+- [Logs and exit codes](#logs-and-exit-codes)
+- [Notes and troubleshooting](#notes-and-troubleshooting)
+- [Project structure](#project-structure)
+- [iTerm2 tuning](#iterm2-tuning)
+- [What changed in this release](#what-changed-in-this-release)
 
 ---
 
-## 支援環境
+## Supported platforms
 
-### 作業系統
+### Operating systems
 
-| 作業系統 | 套件管理器 | Shell 設定檔 |
+| Operating system | Package manager | Shell config file |
 | --- | --- | --- |
-| macOS | Homebrew | `~/.zshrc`（另設定 `~/.zprofile`） |
+| macOS | Homebrew | `~/.zshrc` (plus `~/.zprofile`) |
 | Ubuntu | APT | `~/.bashrc` |
-| Amazon Linux 2／舊版 | YUM | `~/.zshrc` |
+| Amazon Linux 2 / legacy | YUM | `~/.zshrc` |
 | Amazon Linux 2023 | DNF | `~/.zshrc` |
 
-### CPU 架構
+### CPU architectures
 
-| 架構 | 支援程度 |
+| Architecture | Coverage |
 | --- | --- |
-| `x86_64` / `amd64` | 全部工具 |
-| `arm64` / `aarch64` | 全部工具 |
-| `armv7` | 多數工具（`dive` 無官方 armv7 版本） |
-| `armv6` | 僅部分工具，其餘會標示為失敗並可略過 |
+| `x86_64` / `amd64` | All tools |
+| `arm64` / `aarch64` | All tools |
+| `armv7` | Most tools (`dive` has no official armv7 build) |
+| `armv6` | Some tools; the rest are reported as failed and can be skipped |
 
 ---
 
-## 快速開始
+## Getting started
 
 ```bash
 git clone https://github.com/hikohong/nanolander.git
@@ -59,35 +61,35 @@ cd nanolander
 ./bin/nanolander
 ```
 
-也可以明確使用 Bash 執行：
+You can also invoke Bash explicitly:
 
 ```bash
 bash bin/nanolander
 ```
 
-想在任何目錄都能直接呼叫，把它連到 PATH 上：
+To call it from anywhere, link it onto your PATH:
 
 ```bash
 ln -s "$PWD/bin/nanolander" ~/.local/bin/nanolander
 ```
 
-安裝完成後啟用設定：
+Load the new settings once the run finishes:
 
 ```bash
 # Ubuntu
 source ~/.bashrc
 
-# macOS／Amazon Linux
+# macOS / Amazon Linux
 source ~/.zshrc
 ```
 
-或直接登出後重新登入。
+Or simply log out and back in.
 
 ---
 
-## 命令列選項
+## Command-line options
 
-所有選項都可以組合使用，例如：
+Every option combines with every other one, for example:
 
 ```bash
 ./bin/nanolander --set-default-shell --with-aliases --configure-git
@@ -95,7 +97,7 @@ source ~/.zshrc
 
 ### `--help` / `-h`
 
-顯示使用說明與範例，不進行任何安裝。
+Show usage and examples without installing anything.
 
 ```bash
 ./bin/nanolander --help
@@ -103,7 +105,7 @@ source ~/.zshrc
 
 ### `--list-tools`
 
-列出腳本可安裝的所有工具（指令名稱、工具名稱、用途），方便先確認清單再決定是否要用 `--only` 或 `--skip` 過濾。
+Print every tool the script can install (command name, tool name, purpose), so you can review the list before deciding whether to filter it with `--only` or `--skip`.
 
 ```bash
 ./bin/nanolander --list-tools
@@ -111,7 +113,7 @@ source ~/.zshrc
 
 ### `--only a,b,c`
 
-只安裝指定的工具，其餘一律標示為 `SKIPPED`。適合只想補裝少數幾項，或在網路受限的機器上快速安裝必要工具。名稱可以用指令名或工具名，逗號分隔。
+Install just these tools; everything else is marked `SKIPPED`. Useful for topping up a few tools, or for getting the essentials onto a machine with limited network access. Names may be either the command or the tool name, comma separated.
 
 ```bash
 ./bin/nanolander --only nvim,tmux,fzf,ripgrep
@@ -119,7 +121,7 @@ source ~/.zshrc
 
 ### `--skip a,b,c`
 
-安裝全部工具，但排除指定項目。適合沒有 Docker 的機器（略過 `lazydocker`、`dive`），或不想重複安裝已有工具的情況。
+Install everything except these. Handy for machines without Docker (drop `lazydocker` and `dive`), or when you would rather not reinstall something you already have.
 
 ```bash
 ./bin/nanolander --skip lazydocker,dive
@@ -127,7 +129,7 @@ source ~/.zshrc
 
 ### `--set-default-shell`
 
-在 macOS 與 Amazon Linux 上，把目前使用者的登入 shell 改成 zsh。若登入 shell 已經是 zsh 就不會重複變更。Ubuntu 使用 bash 設定，此選項不會生效。
+On macOS and Amazon Linux, change the current user's login shell to zsh. It does nothing if zsh is already the login shell. Ubuntu is configured through bash, so the option has no effect there.
 
 ```bash
 ./bin/nanolander --set-default-shell
@@ -135,9 +137,9 @@ source ~/.zshrc
 
 ### `--with-aliases`
 
-在 shell 設定檔中加入一段可選的別名區塊，把常用指令導向新工具。每一行都會先確認工具存在才生效，因此工具沒裝也不會讓 shell 出錯。
+Add an optional alias block to the shell config file, pointing familiar commands at the new tools. Every line checks that its tool exists first, so a missing tool never breaks your shell.
 
-| 別名 | 實際執行 |
+| Alias | Runs |
 | --- | --- |
 | `ls` | `eza --group-directories-first` |
 | `ll` | `eza -lah --group-directories-first --git` |
@@ -147,11 +149,11 @@ source ~/.zshrc
 | `df` | `duf` |
 | `top` | `btm` |
 
-區塊以 `# >>> nanolander aliases >>>` 與 `# <<< nanolander aliases <<<` 標記，之後想移除只要刪掉這兩行之間的內容即可。不加此選項時，腳本不會覆寫任何既有指令。
+The block is fenced with `# >>> nanolander aliases >>>` and `# <<< nanolander aliases <<<`, so removing it later means deleting everything between those two lines. Without this option the script never overrides an existing command.
 
 ### `--configure-git`
 
-把 git-delta 設為全域 Git 分頁器，讓 `git diff`、`git log`、`git show` 都有語法高亮與行號。實際寫入的設定：
+Set git-delta as the global Git pager, so `git diff`, `git log` and `git show` get syntax highlighting and line numbers. The settings written:
 
 ```gitconfig
 core.pager = delta
@@ -161,292 +163,291 @@ delta.line-numbers = true
 merge.conflictStyle = zdiff3
 ```
 
-若 `git` 或 `delta` 任一不存在，腳本會顯示警告並略過，不會寫入設定。
+If either `git` or `delta` is missing, the script prints a warning and skips it rather than writing the configuration.
 
 ---
 
-## 安裝工具總覽
+## Tool overview
 
-以下每項都附上用途說明與一行上手指令。
+Each entry comes with its purpose and a one-line command to get started.
 
-### 系統與資源監控
+### Monitoring
 
-| 工具 | 指令 | 用途與範例 |
+| Tool | Command | What it does, and an example |
 | --- | --- | --- |
-| **btop** | `btop` | 圖形化資源監控，CPU、記憶體、磁碟、網路都有即時曲線；滑鼠可直接點選程序。<br>`btop` |
-| **htop** | `htop` | 經典互動式程序檢視器，適合快速排序找出吃資源的程序並送出訊號。<br>`htop -u $(whoami)` |
-| **bottom** | `btm` | 另一套監控介面，欄位可設定、程序表可搜尋，在低階或遠端機器上比 btop 輕量。<br>`btm --basic` |
-| **fastfetch** | `fastfetch` | 快速列出系統資訊（OS、核心、CPU、記憶體），登入遠端主機時確認環境很實用。<br>`fastfetch` |
+| **btop** | `btop` | Colourful resource monitor with live graphs for CPU, memory, disk and network, and mouse-driven process selection.<br>`btop` |
+| **htop** | `htop` | Classic interactive process viewer for sorting by load and signalling heavy processes.<br>`htop -u $(whoami)` |
+| **bottom** | `btm` | Second monitor with configurable widgets and a searchable process table; lighter on remote or modest machines.<br>`btm --basic` |
+| **fastfetch** | `fastfetch` | Instant system summary, handy for confirming which box you just SSH'd into.<br>`fastfetch` |
 
-### Git 與開發流程
+### Git and development
 
-| 工具 | 指令 | 用途與範例 |
+| Tool | Command | What it does, and an example |
 | --- | --- | --- |
-| **lazygit** | `lazygit` | Git 的終端機圖形介面，可逐段暫存、互動式 rebase、瀏覽歷史，不必背指令。<br>`lazygit` |
-| **tig** | `tig` | ncurses 介面的 Git 瀏覽器，看 log、blame 與逐行變更比純 CLI 直覺。<br>`tig blame src/main.c` |
-| **git-delta** | `delta` | Git diff 專用分頁器，提供語法高亮、行號與並排比較。<br>`git diff \| delta`（或加 `--configure-git` 全域啟用） |
-| **difftastic** | `difft` | 結構化 diff，比較語法樹而非文字行，重排與縮排變動不會被誤判。<br>`difft old.py new.py` |
-| **GitHub CLI** | `gh` | 在終端機操作 GitHub：PR、Issue、Release、Actions。<br>`gh pr create --fill` |
-| **Git** | `git` | 版本控制本體，四種平台都會確認安裝並驗證版本。<br>`git status -sb` |
+| **lazygit** | `lazygit` | Terminal UI for Git: stage hunks, run interactive rebases and browse history without memorising flags.<br>`lazygit` |
+| **tig** | `tig` | ncurses Git browser for reading log, blame and per-line history far faster than plain CLI output.<br>`tig blame src/main.c` |
+| **git-delta** | `delta` | Pager built for Git diffs, with syntax highlighting, line numbers and side-by-side view.<br>`git diff \| delta` (or `--configure-git` to enable it globally) |
+| **difftastic** | `difft` | Structural diff that compares syntax trees, so reindents and moved blocks stop reading as changes.<br>`difft old.py new.py` |
+| **GitHub CLI** | `gh` | Work with GitHub pull requests, issues, releases and Actions from the shell.<br>`gh pr create --fill` |
+| **Git** | `git` | Version control itself, installed and version-checked on all four platforms.<br>`git status -sb` |
 
-### 程式碼導覽與品質
+### Code navigation and quality
 
-| 工具 | 指令 | 用途與範例 |
+| Tool | Command | What it does, and an example |
 | --- | --- | --- |
-| **universal-ctags** | `ctags` | 產生 tag 索引，讓 Vim／Neovim 直接跳到函式與變數定義。<br>`ctags -R --exclude=.git .` |
-| **cscope** | `cscope` | C／C++ 交叉參照瀏覽器，查詢符號、呼叫者與被呼叫者。<br>`cscope -Rbq` |
-| **ShellCheck** | `shellcheck` | Shell 腳本靜態檢查，找出引號、可攜性與常見寫法問題。<br>`shellcheck bin/nanolander` |
-| **shfmt** | `shfmt` | Shell 腳本格式化工具，統一 sh／bash 縮排與寫法。<br>`shfmt -i 2 -w script.sh` |
+| **universal-ctags** | `ctags` | Build tag indexes so Vim and Neovim can jump straight to a definition.<br>`ctags -R --exclude=.git .` |
+| **cscope** | `cscope` | Cross-reference browser for C and C++ symbols, callers and callees.<br>`cscope -Rbq` |
+| **ShellCheck** | `shellcheck` | Static analysis for shell scripts: quoting, portability and the classic footguns.<br>`shellcheck bin/nanolander` |
+| **shfmt** | `shfmt` | Formatter for sh and bash, keeping indentation and style consistent across a repo.<br>`shfmt -i 2 -w script.sh` |
 
-### 專案工作流程
+### Project workflow
 
-| 工具 | 指令 | 用途與範例 |
+| Tool | Command | What it does, and an example |
 | --- | --- | --- |
-| **just** | `just` | 專案任務執行器，recipe 寫法比 Makefile 單純。<br>`just --list` |
-| **entr** | `entr` | 監看檔案變動就重跑指令，寫測試迴圈很好用。<br>`fd -e py \| entr -c pytest` |
-| **direnv** | `direnv` | 進入目錄自動載入環境變數，離開自動卸載，安裝後自動啟用。<br>`direnv allow` |
+| **just** | `just` | Task runner for per-project recipes, with syntax simpler than a Makefile.<br>`just --list` |
+| **entr** | `entr` | Re-run a command whenever watched files change; the easiest test loop there is.<br>`fd -e py \| entr -c pytest` |
+| **direnv** | `direnv` | Load environment variables on entering a directory and unload them on leaving. Enabled automatically.<br>`direnv allow` |
 
-### 容器
+### Containers
 
-| 工具 | 指令 | 用途與範例 |
+| Tool | Command | What it does, and an example |
 | --- | --- | --- |
-| **lazydocker** | `lazydocker` | Docker 的終端機圖形介面，檢視容器、映像檔、Volume 與即時日誌。<br>`lazydocker` |
-| **dive** | `dive` | 逐層拆解 Docker 映像檔，找出多餘檔案與可精簡的空間。<br>`dive nginx:latest` |
+| **lazydocker** | `lazydocker` | Terminal UI for Docker containers, images, volumes and streaming logs.<br>`lazydocker` |
+| **dive** | `dive` | Inspect a Docker image layer by layer and find the wasted space.<br>`dive nginx:latest` |
 
-### 終端機環境
+### Terminal environment
 
-| 工具 | 指令 | 用途與範例 |
+| Tool | Command | What it does, and an example |
 | --- | --- | --- |
-| **Neovim** | `nvim` | 現代化 Vim 分支，支援 Lua 設定與 LSP，作為預設終端編輯器。<br>`nvim file.py` |
-| **tmux** | `tmux` | 終端多工器，可保留 session、分割視窗；SSH 斷線後工作不會中斷。<br>`tmux new -s dev` |
-| **Starship** | `starship` | 跨 shell 的快速提示字元，顯示 Git 狀態、語言版本與執行時間。<br>安裝後自動寫入 shell 設定 |
-| **zoxide** | `zoxide` | 記憶造訪頻率的 `cd` 進化版，輸入片段就能跳到常用目錄。<br>`z proj`（`z` 由 shell 整合提供） |
+| **Neovim** | `nvim` | Modern Vim fork with Lua config and LSP support, installed as the default terminal editor.<br>`nvim file.py` |
+| **tmux** | `tmux` | Terminal multiplexer for persistent sessions and splits, so a dropped SSH connection doesn't kill your work.<br>`tmux new -s dev` |
+| **Starship** | `starship` | Fast cross-shell prompt showing Git state, language versions and run times. Enabled automatically.<br>`starship preset nerd-font-symbols` |
+| **zoxide** | `zoxide` | A `cd` that remembers where you go, so a fragment of a path is enough to jump there.<br>`z proj` (`z` comes from the shell integration) |
 
-### 檔案瀏覽與搜尋
+### Files and search
 
-| 工具 | 指令 | 用途與範例 |
+| Tool | Command | What it does, and an example |
 | --- | --- | --- |
-| **eza** | `eza` | `ls` 的現代替代品，支援顏色、圖示、樹狀檢視與 Git 狀態。<br>`eza -lah --git` |
-| **bat** | `bat` | 具語法高亮與行號的 `cat`，也可當 `less` 的替代閱讀器。<br>`bat script.sh` |
-| **fd** | `fd` | 快速且好記的 `find` 替代品，預設忽略 `.gitignore` 內容。<br>`fd --extension py` |
-| **ripgrep** | `rg` | 極快的遞迴文字搜尋，適合在大型專案中找字串。<br>`rg "TODO" --type py` |
-| **sd** | `sd` | 直覺的文字取代工具，語法比 `sed -i` 單純。<br>`sd 'old_name' 'new_name' src/*.py` |
-| **fzf** | `fzf` | 模糊搜尋器，可過濾任何清單；已設定 `Ctrl-R` 搜尋歷史、`Ctrl-T` 選檔案。<br>`vim $(fzf)` |
-| **tree** | `tree` | 以縮排樹狀顯示目錄結構。<br>`tree -L 2` |
+| **eza** | `eza` | Modern `ls` replacement with colours, icons, tree view and Git status.<br>`eza -lah --git` |
+| **bat** | `bat` | `cat` with syntax highlighting and line numbers, and a decent reader in its own right.<br>`bat script.sh` |
+| **fd** | `fd` | Fast, ergonomic `find` replacement that respects `.gitignore` by default.<br>`fd --extension py` |
+| **ripgrep** | `rg` | Extremely fast recursive text search across large repositories.<br>`rg "TODO" --type py` |
+| **sd** | `sd` | Find and replace with syntax that is much easier to remember than `sed -i`.<br>`sd 'old_name' 'new_name' src/*.py` |
+| **fzf** | `fzf` | Fuzzy finder for any list. `Ctrl-R` searches shell history and `Ctrl-T` picks files, both wired up for you.<br>`nvim $(fzf)` |
+| **tree** | `tree` | Print a directory hierarchy as an indented tree.<br>`tree -L 2` |
 
-### 磁碟與空間
+### Disk and space
 
-| 工具 | 指令 | 用途與範例 |
+| Tool | Command | What it does, and an example |
 | --- | --- | --- |
-| **dust** | `dust` | 視覺化的 `du`，直接指出佔用空間最多的目錄。<br>`dust -d 2` |
-| **duf** | `duf` | 易讀的 `df`，以表格與使用率長條顯示已掛載檔案系統。<br>`duf` |
-| **ncdu** | `ncdu` | 互動式磁碟用量瀏覽器，可直接在介面中刪除大檔。<br>`ncdu /var` |
+| **dust** | `dust` | Visual `du` that points straight at the directories eating your disk.<br>`dust -d 2` |
+| **duf** | `duf` | Readable `df` with a table of mounted filesystems and usage bars.<br>`duf` |
+| **ncdu** | `ncdu` | Interactive disk usage browser that can delete large files in place.<br>`ncdu /var` |
 
-### 資料處理與文件
+### Data and documents
 
-| 工具 | 指令 | 用途與範例 |
+| Tool | Command | What it does, and an example |
 | --- | --- | --- |
-| **jq** | `jq` | JSON 查詢與轉換的標準工具。<br>`curl -s api/url \| jq '.items[].name'` |
-| **yq** | `yq` | jq 風格的 YAML／JSON／TOML／XML 處理器，適合改 K8s 或 CI 設定檔。<br>`yq '.services.web.image' docker-compose.yml` |
-| **glow** | `glow` | 在終端機漂亮地呈現 Markdown 文件。<br>`glow README.md` |
-| **tldr** | `tldr` | 社群維護的精簡指令範例，比 man page 更快找到用法。<br>`tldr tar` |
+| **jq** | `jq` | The standard command-line JSON processor for querying and reshaping payloads.<br>`curl -s api/url \| jq '.items[].name'` |
+| **yq** | `yq` | jq-style processor for YAML, JSON, TOML and XML, ideal for Kubernetes and CI config.<br>`yq '.services.web.image' docker-compose.yml` |
+| **glow** | `glow` | Render Markdown files beautifully in the terminal.<br>`glow README.md` |
+| **tldr** | `tldr` | Community-written practical examples, faster to scan than a man page.<br>`tldr tar` |
 
-### 網路與量測
+### Network and measurement
 
-| 工具 | 指令 | 用途與範例 |
+| Tool | Command | What it does, and an example |
 | --- | --- | --- |
-| **xh** | `xh` | 快速的 HTTP 用戶端，語法接近 HTTPie，適合手動打 API。<br>`xh GET httpbin.org/get name==value` |
-| **gping** | `gping` | 附即時折線圖的 `ping`，容易看出延遲抖動。<br>`gping 8.8.8.8 google.com` |
-| **hyperfine** | `hyperfine` | 指令效能量測工具，含暖機與統計數據。<br>`hyperfine 'rg TODO' 'grep -r TODO .'` |
-| **wget** | `wget` | 非互動式下載工具，支援續傳與整站抓取。<br>`wget -c https://example.com/file.iso` |
+| **xh** | `xh` | Fast HTTP client with HTTPie-like syntax for poking at APIs by hand.<br>`xh GET httpbin.org/get name==value` |
+| **gping** | `gping` | `ping` with a live latency graph, so jitter is obvious at a glance.<br>`gping 8.8.8.8 google.com` |
+| **hyperfine** | `hyperfine` | Benchmark commands with warmup runs and proper statistics.<br>`hyperfine 'rg TODO' 'grep -r TODO .'` |
+| **wget** | `wget` | Non-interactive downloader with resume and whole-site mirroring.<br>`wget -c https://example.com/file.iso` |
 
-### 基本系統工具
+### System basics
 
-| 工具 | 指令 | 用途與範例 |
+| Tool | Command | What it does, and an example |
 | --- | --- | --- |
-| **watch** | `watch` | 固定間隔重複執行指令並觀察輸出變化。<br>`watch -n 2 'kubectl get pods'` |
-| **rsync** | `rsync` | 可靠的增量檔案同步，本機或透過 SSH 都適用。<br>`rsync -avz ./src/ user@host:/dst/` |
-| **unzip** | `unzip` | 解開 `.zip` 壓縮檔。<br>`unzip archive.zip -d target/` |
+| **watch** | `watch` | Re-run a command on a fixed interval and watch the output change.<br>`watch -n 2 'kubectl get pods'` |
+| **rsync** | `rsync` | Reliable incremental file sync, locally or over SSH.<br>`rsync -avz ./src/ user@host:/dst/` |
+| **unzip** | `unzip` | Extract `.zip` archives.<br>`unzip archive.zip -d target/` |
 
-> macOS 與多數 Linux 發行版已內建 `rsync`、`unzip`、`watch`，此時摘要會顯示 `existing`，腳本不會重複安裝。
+> macOS and most Linux distributions already ship `rsync`, `unzip` and `watch`. The summary then shows `existing` and the script does not reinstall them.
 
 ---
 
-## 腳本內部功能說明
+## How the script works
 
-這一節說明腳本各個函式的職責，方便日後維護或擴充。
+This section describes what each function is responsible for, which should make maintaining or extending the script easier.
 
-### 環境偵測
+### Environment detection
 
-啟動時以 `uname -s` 與 `/etc/os-release` 判斷作業系統，決定套件管理器（brew／apt-get／dnf／yum）與 shell 設定目標；同時把 `uname -m` 正規化成 `x86_64`、`arm64`、`armv7`、`armv6`，作為之後挑選 GitHub Release 檔案的依據。遇到不支援的系統會直接結束並回傳 `1`。
+On startup the script reads `uname -s` and `/etc/os-release` to decide the package manager (brew / apt-get / dnf / yum) and the shell config target. It also normalises `uname -m` into `x86_64`, `arm64`, `armv7` or `armv6`, which is what later selects the right GitHub release asset. An unsupported system exits immediately with status `1`.
 
 ### `wants_tool`
 
-`--only` 與 `--skip` 的過濾判斷。比對時會忽略大小寫與空白，指令名或工具名皆可命中；被過濾掉的工具在摘要中標為 `SKIPPED`，不會被視為失敗。
+The `--only` and `--skip` filter. Matching ignores case and surrounding whitespace, and either the command name or the tool name will match. Filtered tools are marked `SKIPPED` in the summary and are never treated as failures.
 
 ### `print_tool_catalog`
 
-輸出 `--list-tools` 的內容。工具清單集中在腳本開頭的 `TOOL_CATALOG` 變數，新增工具時同步更新該處即可。
+Produces the `--list-tools` output. The catalog itself lives in the `TOOL_CATALOG` variable at the top of the script, so adding a tool means updating that one place.
 
 ### `setup_homebrew`
 
-僅 macOS 使用。若找不到 `brew`，會下載官方安裝程式並以非互動模式執行，接著載入 `/opt/homebrew` 或 `/usr/local` 的 `brew shellenv`。安裝失敗時腳本會中止，因為 macOS 後續步驟都依賴 Homebrew。
+macOS only. If `brew` is missing, the script downloads the official installer and runs it non-interactively, then loads `brew shellenv` from `/opt/homebrew` or `/usr/local`. A failure here aborts the run, because every later macOS step depends on Homebrew.
 
 ### `package_available` / `package_installed` / `install_package`
 
-分別對應「套件庫是否有這個套件」、「本機是否已安裝」、「執行安裝」。三者都依 `PKG_MANAGER` 切換成 `apt-cache`／`dpkg-query`／`rpm`／`brew list` 等對應指令，讓上層邏輯不必關心平台差異。已安裝的套件會直接跳過。
+These answer, in order, "does the repository carry this package", "is it already installed locally" and "install it". Each switches on `PKG_MANAGER` to the matching command — `apt-cache`, `dpkg-query`, `rpm`, `brew list` and so on — so the calling code never has to care about the platform. Packages that are already installed are skipped.
 
 ### `try_package_candidates`
 
-同一工具在不同發行版的套件名稱可能不同（例如 `fd-find` 與 `fd`、`tlrc` 與 `tldr`、`procps-ng` 與 `procps`）。此函式依序嘗試候選名稱，任一成功即返回。
+The same tool can be packaged under different names across distributions, for example `fd-find` versus `fd`, `tlrc` versus `tldr`, or `procps-ng` versus `procps`. This function walks the candidate names in order and returns as soon as one succeeds.
 
 ### `github_install`
 
-套件庫沒有的工具走這條路徑：
+The path taken for tools the repositories do not carry:
 
-1. 呼叫 GitHub API 取得該專案最新 Release。
-2. 依 CPU 架構對應的關鍵字挑出正確的壓縮檔。
-3. 下載後，若 GitHub 有提供 SHA-256 digest 就進行雜湊驗證，不符即中止。
-4. 解壓縮並找出執行檔，安裝到 `~/.local/bin`。
-5. 挑檔時先比對完整結尾再退回關鍵字包含，避免 `linux_arm` 誤選到 `linux_arm64`。
-6. 部分專案在壓縮檔內使用不同檔名（例如 yq 為 `yq_linux_amd64`），此時會以正確名稱取出並改名安裝。
-7. 部分專案直接發佈單一執行檔而非壓縮檔（例如 shfmt、direnv），會略過解壓縮步驟直接安裝。
-8. Neovim 需要完整 runtime 目錄，會安裝到 `~/.local/opt/nvim-github` 並建立 `~/.local/bin/nvim` 連結。
+1. Call the GitHub API for the project's latest release.
+2. Pick the right archive using the keywords for this CPU architecture.
+3. After downloading, verify the SHA-256 digest when GitHub supplies one, and abort on a mismatch.
+4. Extract, locate the executable, and install it into `~/.local/bin`.
+5. Asset selection tries a full suffix match before falling back to keyword containment, so `linux_arm` never gets picked for an `arm64` host.
+6. Some projects use a different name inside the archive (yq ships `yq_linux_amd64`); the file is extracted under the correct name and installed as the plain command.
+7. Some projects publish a single bare executable rather than an archive (shfmt, direnv); the extraction step is skipped.
+8. Neovim needs its full runtime directory, so it is installed into `~/.local/opt/nvim-github` with a symlink in `~/.local/bin`.
 
-若有設定 `GITHUB_TOKEN` 環境變數，會自動帶入認證標頭以提高 API 額度。
+Setting the `GITHUB_TOKEN` environment variable adds an authentication header, which raises the API rate limit.
 
 ### `make_compat_links`
 
-Ubuntu／Debian 的套件會把執行檔命名為 `fdfind` 與 `batcat`。此函式在 `~/.local/bin` 建立 `fd` 與 `bat` 連結，讓各平台的使用習慣一致。
+Debian and Ubuntu name the executables `fdfind` and `batcat`. This function creates `fd` and `bat` links in `~/.local/bin` so that usage stays the same on every platform.
 
 ### `command_works`
 
-驗證工具是否真的可用：先確認指令存在，再實際執行版本查詢。`tmux` 使用 `-V`、`unzip` 使用 `-v`，其餘使用 `--version`；`entr` 沒有版本參數，因此以存在於 PATH 為準。只有通過驗證才會記為成功。
+Confirms a tool really is usable: first that the command exists, then by actually running a version query. `tmux` uses `-V`, `unzip` uses `-v` and `cscope` uses `-V`; everything else uses `--version`. `entr` has no version flag, so being on the PATH is the test. Only a tool that passes is recorded as a success.
 
 ### `ensure_linux_tool` / `ensure_brew_tool`
 
-每項工具的安裝流程主體。順序為：過濾判斷 → 已安裝就跳過 → 套件管理器安裝 → 需要時改用 GitHub Release → 最終驗證 → 記錄結果與來源。`ensure_brew_tool` 是 macOS 的簡化版本，只走 Homebrew。
+The body of the install flow for one tool. The order is: filter check → skip if already present → package manager → GitHub release if needed → final verification → record the result and its source. `ensure_brew_tool` is the simplified macOS version and only uses Homebrew.
 
-### Shell 環境設定
+### Shell configuration
 
-寫入設定檔前一律用完整字串比對，重複執行不會產生重複行。實際寫入的內容見下一節。
+Before writing to a config file the script always compares the whole line, so re-running never produces a duplicate. The exact content is listed in the next section.
 
-### 安裝摘要
+### Installation summary
 
-結束時輸出表格，逐項顯示工具、狀態（`SUCCESS`／`FAILED`／`SKIPPED`）、來源（`existing`、`package manager`、`GitHub release`、`filter`）與路徑，並統計成功、略過與失敗數量。
+At the end the script prints a table showing each tool, its status (`SUCCESS` / `FAILED` / `SKIPPED`), its source (`existing`, `package manager`, `GitHub release`, `filter`) and its path, followed by counts of successes, skips and failures.
 
 ---
 
-## Shell 設定變更內容
+## Shell configuration changes
 
-腳本會依平台寫入 `~/.bashrc` 或 `~/.zshrc`：
+Depending on the platform, the script writes to `~/.bashrc` or `~/.zshrc`:
 
-| 設定 | 內容 | 條件 |
+| Setting | Content | Condition |
 | --- | --- | --- |
-| PATH | `export PATH="$HOME/.local/bin:$PATH"` | 一律寫入 |
-| Homebrew | 在 `~/.zprofile` 加入 `eval "$(brew shellenv)"` | 僅 macOS |
-| zoxide | `eval "$(zoxide init zsh\|bash)"` | zoxide 安裝成功 |
-| Starship | `eval "$(starship init zsh\|bash)"` | Starship 安裝成功 |
-| direnv | `eval "$(direnv hook zsh\|bash)"` | direnv 安裝成功 |
-| fzf 快捷鍵 | `eval "$(fzf --zsh\|--bash)"`，啟用 `Ctrl-R`、`Ctrl-T` | fzf 安裝成功 |
-| fzf 搜尋來源 | `export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'` | fzf 與 fd 皆可用 |
-| 別名區塊 | 見 `--with-aliases` 說明 | 指定 `--with-aliases` |
+| PATH | `export PATH="$HOME/.local/bin:$PATH"` | Always |
+| Homebrew | `eval "$(brew shellenv)"` added to `~/.zprofile` | macOS only |
+| zoxide | `eval "$(zoxide init zsh\|bash)"` | zoxide installed successfully |
+| Starship | `eval "$(starship init zsh\|bash)"` | Starship installed successfully |
+| direnv | `eval "$(direnv hook zsh\|bash)"` | direnv installed successfully |
+| fzf key bindings | `eval "$(fzf --zsh\|--bash)"`, enabling `Ctrl-R` and `Ctrl-T` | fzf installed successfully |
+| fzf search source | `export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'` | both fzf and fd available |
+| Alias block | See `--with-aliases` | `--with-aliases` given |
 
-fzf 相關設定都加了 `command -v fzf` 判斷與錯誤抑制，即使日後移除 fzf 或使用舊版本，也不會讓 shell 啟動時噴錯。
+The fzf lines are guarded with a `command -v fzf` check and have their errors suppressed, so removing fzf later, or running an older version of it, will not make your shell complain at startup.
 
 ---
 
-## 日誌與回傳狀態
+## Logs and exit codes
 
-### 日誌
+### Logs
 
-每次執行都會產生一份與畫面完全相同的日誌：
+Every run writes a transcript identical to what appeared on screen:
 
 ```
 ~/nanolander-YYYYMMDD-HHMMSS.log
 ```
 
-安裝失敗時，可用工具名稱在日誌中搜尋對應區段，例如 `== Installing yq ==`。
+When an install fails, search the log by tool name to find the relevant section, for example `== Installing yq ==`.
 
-### 回傳狀態
+### Exit codes
 
-| 代碼 | 意義 |
+| Code | Meaning |
 | --- | --- |
-| `0` | 全部工具安裝並驗證成功（含被過濾略過的項目） |
-| `1` | 環境準備或必要步驟失敗（例如無法辨識系統、套件庫更新失敗） |
-| `2` | 部分工具安裝失敗或不可用 |
-| `64` | 參數錯誤 |
-| `130` | 使用者中斷執行 |
+| `0` | Every tool installed and verified, including any filtered out |
+| `1` | Environment preparation or a required step failed (unknown system, package index refresh failed) |
+| `2` | One or more tools failed to install or could not be verified |
+| `64` | Bad arguments |
+| `130` | Interrupted by the user |
 
 ---
 
-## 注意事項與疑難排解
+## Notes and troubleshooting
 
-- **sudo 密碼**：Linux 安裝系統套件時可能要求輸入密碼；腳本開頭會先驗證 sudo 權限。
-- **Homebrew**：macOS 若尚未安裝 Homebrew，腳本會下載並執行官方安裝程式。
-- **GitHub API 限制**：未登入的 API 呼叫額度較低，一次安裝多項工具時可能出現 `403`。建議先設定 token 再執行：
+- **sudo password**: installing system packages on Linux may ask for your password. The script verifies sudo access up front.
+- **Homebrew**: on macOS without Homebrew, the script downloads and runs the official installer.
+- **GitHub API limits**: unauthenticated calls have a low quota, so installing many tools at once can hit a `403`. Set a token first:
 
   ```bash
   export GITHUB_TOKEN=ghp_xxx
   ./bin/nanolander
   ```
 
-- **Docker 相關工具**：`lazydocker` 與 `dive` 需要本機有可用的 Docker 環境才能實際運作；沒有 Docker 的機器可用 `--skip lazydocker,dive`。
-- **只有套件庫來源的工具**：`tig`、`cscope`、`entr`、`ctags` 沒有官方跨平台執行檔，只能靠發行版套件庫。Amazon Linux 2023 未內建 EPEL，這幾項可能會標示為 `FAILED`，可用 `--skip tig,cscope,entr` 排除，或自行啟用 EPEL 後再跑一次。
-- **Amazon Linux 2**：套件庫較舊，多數現代工具會改用 GitHub Release 安裝到 `~/.local/bin`，屬正常行為。
-- **armv6 機器**：官方 Release 支援有限，未提供對應版本的工具會標示為 `FAILED`；可用 `--only` 指定確定可用的項目。
-- **安裝失敗時**：先看摘要中的 `FAILED` 列，再到日誌對應區段查看原因；其餘成功的工具不受影響，可正常使用。
-- **重複執行**：腳本可安全重跑，已安裝的工具會顯示 `existing`，shell 設定也不會重複加入。
+- **Docker tools**: `lazydocker` and `dive` need a working local Docker to be useful. On machines without it, use `--skip lazydocker,dive`.
+- **Repository-only tools**: `tig`, `cscope`, `entr` and `ctags` have no official cross-platform binaries and can only come from a distribution package. Amazon Linux 2023 does not include EPEL, so these may come out as `FAILED`; either exclude them with `--skip tig,cscope,entr` or enable EPEL yourself and run again.
+- **Amazon Linux 2**: the repositories are older, so most modern tools are installed from a GitHub release into `~/.local/bin`. That is expected.
+- **armv6 machines**: official release coverage is limited, and tools without a matching build are marked `FAILED`. Use `--only` to pick the ones you know work.
+- **When an install fails**: look at the `FAILED` rows in the summary first, then the matching section of the log. Everything else that succeeded is unaffected and ready to use.
+- **Re-running**: the script is safe to run repeatedly. Tools already present show as `existing`, and shell configuration is never added twice.
 
 ---
 
-## 專案結構
+## Project structure
 
 ```
 nanolander/
 ├── bin/
-│   ├── nanolander      主安裝腳本
-│   └── iterm-tune      iTerm2 效能調校（僅 macOS）
+│   ├── nanolander      the main install script
+│   └── iterm-tune      iTerm2 performance tuning (macOS only)
 ├── docs/
-│   ├── index.html      彩色版說明（中文）
-│   └── index.en.html   彩色版說明（英文）
+│   └── index.html      the project page
 ├── README.md
 └── LICENSE
 ```
 
-`docs/` 可以直接開 GitHub Pages 當專案網站。
+`docs/` can be published directly as the project site through GitHub Pages.
 
-## iTerm2 效能調校
+## iTerm2 tuning
 
-macOS 使用者可以順便調整 iTerm2 的渲染設定。先看現況，確認後再套用：
+macOS users can also tune iTerm2's rendering settings. Look at the current state first, then apply once you are happy:
 
 ```bash
-./bin/iterm-tune              # 只顯示，不改任何東西
-./bin/iterm-tune --apply      # 備份後套用（必須先關閉 iTerm2）
-./bin/iterm-tune --restore    # 還原最近一次備份
+./bin/iterm-tune              # report only, changes nothing
+./bin/iterm-tune --apply      # back up, then apply (quit iTerm2 first)
+./bin/iterm-tune --restore    # restore the most recent backup
 ```
 
-會處理的項目：GPU 渲染在電池模式下不被關閉、吞吐量優先、關閉透明與模糊、關閉連字、scrollback 改為有上限。觸發器數量與背景圖片只提醒不改動。
+What it covers: GPU rendering is not disabled on battery, rendering favours throughput, transparency and blur are turned off, ligatures are turned off, and scrollback becomes bounded instead of unlimited. Trigger counts and background images are reported only, never modified.
 
-## 本次更新內容
+## What changed in this release
 
-### 新增工具（19 → 44 項）
+### New tools (19 → 44)
 
-監控與檔案類：`bottom`、`dive`、`sd`、`tree`、`duf`、`yq`、`glow`、`xh`、`gping`、`hyperfine`、`watch`、`rsync`、`wget`、`unzip`
+Monitoring and files: `bottom`, `dive`, `sd`, `tree`, `duf`, `yq`, `glow`, `xh`, `gping`, `hyperfine`, `watch`, `rsync`, `wget`, `unzip`
 
-寫程式常用：`git`、`tig`、`git-delta`、`difftastic`、`ctags`、`cscope`、`ShellCheck`、`shfmt`、`just`、`entr`、`direnv`
+Everyday development: `git`, `tig`, `git-delta`, `difftastic`, `ctags`, `cscope`, `ShellCheck`, `shfmt`, `just`, `entr`, `direnv`
 
-四種作業系統與各 CPU 架構的安裝路徑均已補齊：macOS 走 Homebrew，Linux 優先使用套件庫，缺少時改用官方 GitHub Release，並已確認各專案的檔案命名與壓縮檔結構。
+Install paths are now complete for all four operating systems and every CPU architecture: macOS goes through Homebrew, Linux prefers the repositories and falls back to the project's official GitHub release, with each project's file naming and archive layout confirmed.
 
-### 新增選項
+### New options
 
-`--list-tools`、`--only`、`--skip`、`--with-aliases`、`--configure-git`；同時支援多個選項並用（原本僅接受單一參數）。
+`--list-tools`, `--only`, `--skip`, `--with-aliases`, `--configure-git`, with support for combining several options in one run (previously only a single argument was accepted).
 
-### 其他調整
+### Other changes
 
-- `github_install` 支援壓縮檔內外檔名不同的專案（yq）、直接發佈單一執行檔的專案（shfmt、direnv），挑檔改為先比對完整結尾。
-- direnv 安裝後自動加入 shell hook。
-- 新增 fzf 快捷鍵與搜尋來源整合。
-- `command_works` 加入 `unzip -v` 與 `entr` 的驗證方式。
-- 腳本本身已通過 ShellCheck（warning 以上零問題）。
-- 摘要新增 `SKIPPED` 狀態與略過數量統計，被過濾的工具不會影響回傳狀態。
+- `github_install` now handles projects whose archive contents are named differently from the archive (yq) and projects that publish a bare executable (shfmt, direnv), and asset selection compares the full suffix first.
+- direnv adds its shell hook automatically after installation.
+- fzf key bindings and search source are now integrated.
+- `command_works` gained the `unzip -v`, `cscope -V` and `entr` verification paths.
+- The script itself passes ShellCheck cleanly.
+- The summary gained the `SKIPPED` status and a skipped count; filtered tools do not affect the exit code.
