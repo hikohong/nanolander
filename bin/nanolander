@@ -1,0 +1,1332 @@
+#!/usr/bin/env bash
+#
+# nanolander — 帶著整套裝備降落在任何一台機器上。
+#
+# One script that installs the same modern terminal toolchain on macOS,
+# Ubuntu, Amazon Linux 2 and Amazon Linux 2023, then wires up the shell.
+# Distribution packages first; official GitHub releases when the repository
+# does not carry the tool.
+#
+# Written for bash 3.2 — the version macOS still ships — so there are no
+# associative arrays, no mapfile and no ${var,,} anywhere in this file.
+#
+# Docs: README.md / docs/index.html
+# License: MIT (see LICENSE)
+
+set -uo pipefail
+
+readonly NANOLANDER_VERSION="1.0.0"
+
+# ---------------------------------------------------------------------------
+# Exit codes (documented in README.md § 回傳狀態)
+# ---------------------------------------------------------------------------
+readonly EXIT_OK=0        # everything requested installed and verified
+readonly EXIT_ENV=1       # environment prep failed (unknown OS, repo refresh)
+readonly EXIT_PARTIAL=2   # some tools failed to install or verify
+readonly EXIT_USAGE=64    # bad arguments
+readonly EXIT_INTERRUPT=130
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+LOCAL_BIN="$HOME/.local/bin"
+LOCAL_OPT="$HOME/.local/opt"
+LOG_FILE="$HOME/nanolander-$(date +%Y%m%d-%H%M%S).log"
+
+# ---------------------------------------------------------------------------
+# Tool catalog — the single source of truth for --list-tools and the install
+# loop. One record per line: command|display name|category|purpose
+#
+# Adding a tool means adding a line here plus, where needed, an entry in
+# pkg_candidates() and github_repo().
+# ---------------------------------------------------------------------------
+TOOL_CATALOG='btop|btop|System & resource monitoring|Graphical resource monitor with live CPU, memory, disk and network curves
+htop|htop|System & resource monitoring|Classic interactive process viewer for sorting and signalling processes
+btm|bottom|System & resource monitoring|Configurable monitor, lighter than btop on small or remote machines
+fastfetch|fastfetch|System & resource monitoring|Fast system summary (OS, kernel, CPU, memory) when landing on a host
+lazygit|lazygit|Git & development flow|Terminal UI for git: stage hunks, interactive rebase, browse history
+tig|tig|Git & development flow|ncurses git browser for log, blame and per-line changes
+delta|git-delta|Git & development flow|Pager for git diff with syntax highlighting and line numbers
+difft|difftastic|Git & development flow|Structural diff that compares syntax trees instead of text lines
+gh|GitHub CLI|Git & development flow|Drive GitHub from the terminal: PRs, issues, releases, actions
+git|Git|Git & development flow|Version control itself, installed and version-checked on all four platforms
+ctags|universal-ctags|Code navigation & quality|Tag index so Vim/Neovim can jump straight to a definition
+cscope|cscope|Code navigation & quality|C/C++ cross-reference browser for symbols, callers and callees
+shellcheck|ShellCheck|Code navigation & quality|Static analysis for shell scripts
+shfmt|shfmt|Code navigation & quality|Formatter for sh/bash scripts
+just|just|Project workflow|Command runner with recipes simpler than a Makefile
+entr|entr|Project workflow|Re-run a command whenever the watched files change
+direnv|direnv|Project workflow|Load and unload environment variables per directory
+lazydocker|lazydocker|Containers|Terminal UI for Docker containers, images, volumes and live logs
+dive|dive|Containers|Inspect a Docker image layer by layer to find wasted space
+nvim|Neovim|Terminal environment|Modern Vim fork with Lua config and LSP, used as the default editor
+tmux|tmux|Terminal environment|Terminal multiplexer; sessions survive an SSH drop
+starship|Starship|Terminal environment|Fast cross-shell prompt with git state, language versions and timing
+zoxide|zoxide|Terminal environment|Frecency-ranked cd replacement
+eza|eza|File browsing & search|Modern ls with colors, icons, tree view and git status
+bat|bat|File browsing & search|cat with syntax highlighting and line numbers
+fd|fd|File browsing & search|Fast, friendly find replacement that respects .gitignore
+rg|ripgrep|File browsing & search|Very fast recursive text search
+sd|sd|File browsing & search|Intuitive find-and-replace, simpler than sed -i
+fzf|fzf|File browsing & search|Fuzzy finder; wired to Ctrl-R for history and Ctrl-T for files
+tree|tree|File browsing & search|Indented tree view of a directory
+dust|dust|Disk & space|Visual du that points straight at the biggest directories
+duf|duf|Disk & space|Readable df with a table and usage bars
+ncdu|ncdu|Disk & space|Interactive disk usage browser that can delete in place
+jq|jq|Data & documents|The standard JSON query and transform tool
+yq|yq|Data & documents|jq-style processor for YAML/JSON/TOML/XML
+glow|glow|Data & documents|Render Markdown nicely in the terminal
+tldr|tldr|Data & documents|Community-maintained, example-first command help
+xh|xh|Network & measurement|Fast HTTP client with HTTPie-like syntax
+gping|gping|Network & measurement|ping with a live line graph
+hyperfine|hyperfine|Network & measurement|Command-line benchmarking with warmup and statistics
+wget|wget|Network & measurement|Non-interactive downloader with resume and mirroring
+watch|watch|Base system tools|Repeat a command at a fixed interval and watch the output change
+rsync|rsync|Base system tools|Reliable incremental file sync, locally or over SSH
+unzip|unzip|Base system tools|Extract .zip archives'
+
+# ---------------------------------------------------------------------------
+# Runtime state
+# ---------------------------------------------------------------------------
+OS_KIND=""        # macos | ubuntu | amazon
+OS_LABEL=""
+PKG_MANAGER=""    # brew | apt-get | dnf | yum
+SHELL_RC=""
+SHELL_KIND=""     # zsh | bash
+ARCH=""           # x86_64 | arm64 | armv7 | armv6
+RAW_ARCH=""
+ARCH_KEYWORDS=""
+OS_KEYWORDS=""
+BREW_BIN=""
+
+ONLY_LIST=""
+SKIP_LIST=""
+OPT_SET_DEFAULT_SHELL=0
+OPT_WITH_ALIASES=0
+OPT_CONFIGURE_GIT=0
+
+RESULTS=""        # cmd|status|source|path per line
+COUNT_SUCCESS=0
+COUNT_FAILED=0
+COUNT_SKIPPED=0
+
+INSTALL_SOURCE=""
+PICKED_URL=""
+PICKED_DIGEST=""
+
+# ---------------------------------------------------------------------------
+# Output helpers. Deliberately plain text: the log file is a byte-for-byte
+# copy of the screen, so `grep '== Installing yq =='` works on it.
+# ---------------------------------------------------------------------------
+info() { printf '[INFO] %s\n' "$*"; }
+ok()   { printf '[ OK ] %s\n' "$*"; }
+warn() { printf '[WARN] %s\n' "$*"; }
+fail() { printf '[FAIL] %s\n' "$*"; }
+section() { printf '\n== %s ==\n' "$*"; }
+
+tool_count() { printf '%s\n' "$TOOL_CATALOG" | grep -c '|'; }
+
+usage() {
+  cat <<USAGE
+nanolander ${NANOLANDER_VERSION} — 帶著整套裝備降落在任何一台機器上。
+
+Installs $(tool_count) modern terminal tools on macOS, Ubuntu, Amazon Linux 2 and
+Amazon Linux 2023, then configures the shell. Distribution packages are used
+where they exist; otherwise the official GitHub release is fetched into
+~/.local/bin.
+
+USAGE:
+  ./bin/nanolander [options]
+
+OPTIONS:
+  -h, --help              Show this help and exit without installing anything.
+      --list-tools        List every installable tool and exit.
+      --only a,b,c        Install only these tools; everything else is SKIPPED.
+      --skip a,b,c        Install everything except these tools.
+      --set-default-shell Switch the login shell to zsh (macOS / Amazon Linux).
+      --with-aliases      Add the optional alias block to the shell rc file.
+      --configure-git     Set git-delta as the global git pager.
+
+  Names may be either the command (rg) or the tool name (ripgrep); matching
+  ignores case and surrounding whitespace. Options combine freely.
+
+EXAMPLES:
+  ./bin/nanolander
+  ./bin/nanolander --list-tools
+  ./bin/nanolander --only nvim,tmux,fzf,ripgrep
+  ./bin/nanolander --skip lazydocker,dive
+  ./bin/nanolander --set-default-shell --with-aliases --configure-git
+
+ENVIRONMENT:
+  GITHUB_TOKEN  Used for GitHub API calls when set, which raises the rate
+                limit. Unauthenticated runs may hit 403 partway through.
+
+EXIT CODES:
+  0   every requested tool installed and verified (filtered ones count as OK)
+  1   environment preparation failed
+  2   one or more tools failed to install or verify
+  64  bad arguments
+  130 interrupted
+
+Log: ~/nanolander-YYYYMMDD-HHMMSS.log
+USAGE
+}
+
+# print_tool_catalog — backs --list-tools.
+print_tool_catalog() {
+  local cmd name category purpose last_category=""
+  printf 'nanolander %s — %s installable tools\n' "$NANOLANDER_VERSION" "$(tool_count)"
+  while IFS='|' read -r cmd name category purpose; do
+    [ -n "$cmd" ] || continue
+    if [ "$category" != "$last_category" ]; then
+      printf '\n%s\n' "$category"
+      last_category="$category"
+    fi
+    printf '  %-11s %-16s %s\n' "$cmd" "$name" "$purpose"
+  done <<CATALOG
+$TOOL_CATALOG
+CATALOG
+  printf '\nFilter with --only or --skip using either column, e.g. --only rg,ripgrep\n'
+}
+
+# ---------------------------------------------------------------------------
+# Argument parsing — every option may be combined with every other one.
+# ---------------------------------------------------------------------------
+DO_HELP=0
+DO_LIST=0
+
+parse_args() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -h|--help) DO_HELP=1 ;;
+      --list-tools) DO_LIST=1 ;;
+      --only)
+        [ $# -ge 2 ] || { fail "--only needs a comma separated list."; return "$EXIT_USAGE"; }
+        ONLY_LIST="$2"; shift ;;
+      --only=*) ONLY_LIST="${1#--only=}" ;;
+      --skip)
+        [ $# -ge 2 ] || { fail "--skip needs a comma separated list."; return "$EXIT_USAGE"; }
+        SKIP_LIST="$2"; shift ;;
+      --skip=*) SKIP_LIST="${1#--skip=}" ;;
+      --set-default-shell) OPT_SET_DEFAULT_SHELL=1 ;;
+      --with-aliases) OPT_WITH_ALIASES=1 ;;
+      --configure-git) OPT_CONFIGURE_GIT=1 ;;
+      --version) printf 'nanolander %s\n' "$NANOLANDER_VERSION"; exit "$EXIT_OK" ;;
+      --) shift; break ;;
+      *)
+        fail "Unknown option: $1"
+        printf 'Try ./bin/nanolander --help\n'
+        return "$EXIT_USAGE" ;;
+    esac
+    shift
+  done
+  if [ -n "$ONLY_LIST" ] && [ -n "$SKIP_LIST" ]; then
+    fail "--only and --skip cannot be used together."
+    return "$EXIT_USAGE"
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# wants_tool — the --only / --skip filter. Case and whitespace insensitive;
+# either the command name or the display name matches. Filtered tools are
+# reported as SKIPPED and never count as a failure.
+# ---------------------------------------------------------------------------
+normalise() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]'; }
+
+list_contains() {
+  local list="$1" cmd="$2" name="$3" item old_ifs
+  old_ifs="$IFS"
+  IFS=','
+  # Word splitting on commas is the point here.
+  # shellcheck disable=SC2086
+  set -- $list
+  IFS="$old_ifs"
+  for item in "$@"; do
+    item=$(normalise "$item")
+    [ -n "$item" ] || continue
+    if [ "$item" = "$cmd" ] || [ "$item" = "$name" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+wants_tool() {
+  local cmd name
+  cmd=$(normalise "$1")
+  name=$(normalise "$2")
+  if [ -n "$ONLY_LIST" ]; then
+    list_contains "$ONLY_LIST" "$cmd" "$name"
+    return $?
+  fi
+  if [ -n "$SKIP_LIST" ]; then
+    if list_contains "$SKIP_LIST" "$cmd" "$name"; then
+      return 1
+    fi
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# Environment detection — uname -s plus /etc/os-release decide the package
+# manager and the shell rc target; uname -m is normalised into the keyword
+# set used later to pick a GitHub release asset.
+# ---------------------------------------------------------------------------
+detect_environment() {
+  section "Detected environment"
+
+  case "$(uname -s)" in
+    Darwin)
+      OS_KIND="macos"
+      OS_LABEL="macOS $(sw_vers -productVersion 2>/dev/null || printf 'unknown')"
+      PKG_MANAGER="brew"
+      SHELL_RC="$HOME/.zshrc"
+      SHELL_KIND="zsh"
+      ;;
+    Linux)
+      local id="" id_like="" pretty="" version_id=""
+      if [ -r /etc/os-release ]; then
+        id=$(sed -n 's/^ID=//p' /etc/os-release | tr -d '"' | head -1)
+        id_like=$(sed -n 's/^ID_LIKE=//p' /etc/os-release | tr -d '"' | head -1)
+        pretty=$(sed -n 's/^PRETTY_NAME=//p' /etc/os-release | tr -d '"' | head -1)
+        version_id=$(sed -n 's/^VERSION_ID=//p' /etc/os-release | tr -d '"' | head -1)
+      fi
+      case "$id" in
+        ubuntu|debian|linuxmint|pop|raspbian)
+          OS_KIND="ubuntu"
+          OS_LABEL="${pretty:-Ubuntu}"
+          PKG_MANAGER="apt-get"
+          SHELL_RC="$HOME/.bashrc"
+          SHELL_KIND="bash"
+          ;;
+        amzn)
+          OS_KIND="amazon"
+          OS_LABEL="${pretty:-Amazon Linux}"
+          if [ "$version_id" = "2" ] || ! command -v dnf >/dev/null 2>&1; then
+            PKG_MANAGER="yum"
+          else
+            PKG_MANAGER="dnf"
+          fi
+          SHELL_RC="$HOME/.zshrc"
+          SHELL_KIND="zsh"
+          ;;
+        *)
+          # Fall back to the family, so a Debian or RHEL derivative still works.
+          case " $id_like " in
+            *debian*)
+              OS_KIND="ubuntu"; OS_LABEL="${pretty:-Debian-like}"
+              PKG_MANAGER="apt-get"; SHELL_RC="$HOME/.bashrc"; SHELL_KIND="bash" ;;
+            *fedora*|*rhel*|*centos*)
+              OS_KIND="amazon"; OS_LABEL="${pretty:-RHEL-like}"
+              if command -v dnf >/dev/null 2>&1; then PKG_MANAGER="dnf"; else PKG_MANAGER="yum"; fi
+              SHELL_RC="$HOME/.zshrc"; SHELL_KIND="zsh" ;;
+            *)
+              fail "Unsupported Linux distribution: ${pretty:-${id:-unknown}}"
+              info "nanolander supports macOS, Ubuntu, Amazon Linux 2 and Amazon Linux 2023."
+              return "$EXIT_ENV" ;;
+          esac
+          ;;
+      esac
+      ;;
+    *)
+      fail "Unsupported operating system: $(uname -s)"
+      return "$EXIT_ENV"
+      ;;
+  esac
+
+  RAW_ARCH=$(uname -m)
+  case "$RAW_ARCH" in
+    x86_64|amd64)      ARCH="x86_64" ;;
+    arm64|aarch64)     ARCH="arm64" ;;
+    armv7*|armhf)      ARCH="armv7" ;;
+    armv6*)            ARCH="armv6" ;;
+    *)
+      fail "Unsupported CPU architecture: $RAW_ARCH"
+      return "$EXIT_ENV" ;;
+  esac
+
+  # Release-asset keywords, most specific first. Matching tries a full suffix
+  # match on every keyword before falling back to substring containment, so
+  # linux_arm never swallows linux_arm64.
+  if [ "$OS_KIND" = "macos" ]; then
+    OS_KEYWORDS="apple-darwin darwin macos osx"
+    case "$ARCH" in
+      arm64)  ARCH_KEYWORDS="aarch64-apple-darwin arm64-apple-darwin darwin_arm64 arm64 aarch64" ;;
+      x86_64) ARCH_KEYWORDS="x86_64-apple-darwin darwin_amd64 x86_64 amd64" ;;
+    esac
+  else
+    OS_KEYWORDS="linux"
+    case "$ARCH" in
+      x86_64) ARCH_KEYWORDS="x86_64-unknown-linux-gnu x86_64-unknown-linux-musl linux_amd64 linux-amd64 x86_64 amd64 64bit" ;;
+      arm64)  ARCH_KEYWORDS="aarch64-unknown-linux-gnu aarch64-unknown-linux-musl linux_arm64 linux-arm64 aarch64 arm64" ;;
+      armv7)  ARCH_KEYWORDS="armv7-unknown-linux-gnueabihf arm-unknown-linux-gnueabihf linux_armv7 linux-armv7 armv7l armv7 armhf" ;;
+      armv6)  ARCH_KEYWORDS="arm-unknown-linux-gnueabi linux_armv6 linux-armv6 armv6l armv6" ;;
+    esac
+  fi
+
+  info "OS: $OS_LABEL"
+  info "Architecture: $RAW_ARCH ($ARCH)"
+  info "Package manager: $PKG_MANAGER"
+  info "Shell config: $SHELL_RC ($SHELL_KIND)"
+  info "Local bin: $LOCAL_BIN"
+  [ -n "${GITHUB_TOKEN:-}" ] && info "GITHUB_TOKEN detected; GitHub API calls will be authenticated."
+  return 0
+}
+
+# as_root — run a command with sudo unless we are already root. macOS never
+# needs it because Homebrew refuses to run as root.
+as_root() {
+  if [ "$(id -u)" = "0" ]; then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
+
+ensure_sudo() {
+  [ "$OS_KIND" = "macos" ] && return 0
+  [ "$(id -u)" = "0" ] && return 0
+  if ! command -v sudo >/dev/null 2>&1; then
+    fail "sudo is not available and this is not a root shell."
+    return "$EXIT_ENV"
+  fi
+  info "Checking sudo access (you may be asked for your password)."
+  if ! sudo -v; then
+    fail "sudo authentication failed."
+    return "$EXIT_ENV"
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# setup_homebrew — macOS only. Homebrew is a hard dependency there, so a
+# failure here aborts the run.
+# ---------------------------------------------------------------------------
+setup_homebrew() {
+  [ "$OS_KIND" = "macos" ] || return 0
+  local prefix
+  if ! command -v brew >/dev/null 2>&1; then
+    info "Homebrew not found; running the official installer non-interactively."
+    if ! NONINTERACTIVE=1 /bin/bash -c \
+      "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; then
+      fail "Homebrew installation failed; every macOS step depends on it."
+      return "$EXIT_ENV"
+    fi
+  fi
+  for prefix in /opt/homebrew /usr/local; do
+    if [ -x "$prefix/bin/brew" ]; then
+      BREW_BIN="$prefix/bin/brew"
+      eval "$("$BREW_BIN" shellenv)"
+      break
+    fi
+  done
+  if [ -z "$BREW_BIN" ]; then
+    if command -v brew >/dev/null 2>&1; then
+      BREW_BIN=$(command -v brew)
+      eval "$("$BREW_BIN" shellenv)"
+    else
+      fail "Homebrew is installed but brew could not be located."
+      return "$EXIT_ENV"
+    fi
+  fi
+  ok "Homebrew ready: $BREW_BIN"
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# Package manager abstraction. Each of the three questions — does the
+# repository carry it, is it already installed, install it — is answered per
+# package manager so the callers stay platform agnostic.
+# ---------------------------------------------------------------------------
+package_available() {
+  local pkg="$1" candidate
+  case "$PKG_MANAGER" in
+    brew)
+      brew info --formula "$pkg" >/dev/null 2>&1 ;;
+    apt-get)
+      candidate=$(apt-cache policy "$pkg" 2>/dev/null | awk '/Candidate:/ {print $2; exit}')
+      [ -n "$candidate" ] && [ "$candidate" != "(none)" ] ;;
+    dnf)
+      dnf -q info "$pkg" >/dev/null 2>&1 ;;
+    yum)
+      yum -q info "$pkg" >/dev/null 2>&1 ;;
+    *) return 1 ;;
+  esac
+}
+
+package_installed() {
+  local pkg="$1"
+  case "$PKG_MANAGER" in
+    brew)    brew list --formula --versions "$pkg" >/dev/null 2>&1 ;;
+    apt-get) dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q 'ok installed' ;;
+    dnf|yum) rpm -q "$pkg" >/dev/null 2>&1 ;;
+    *) return 1 ;;
+  esac
+}
+
+install_package() {
+  local pkg="$1"
+  case "$PKG_MANAGER" in
+    brew)    brew install "$pkg" ;;
+    apt-get) as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "$pkg" ;;
+    dnf)     as_root dnf install -y "$pkg" ;;
+    yum)     as_root yum install -y "$pkg" ;;
+    *) return 1 ;;
+  esac
+}
+
+refresh_package_index() {
+  section "Refreshing package index"
+  case "$PKG_MANAGER" in
+    brew)
+      # A stale Homebrew index is inconvenient, not fatal.
+      if brew update; then ok "Homebrew index updated."; else warn "brew update failed; continuing with the current index."; fi
+      ;;
+    apt-get)
+      if ! as_root apt-get update -y; then
+        fail "apt-get update failed; cannot install packages reliably."
+        return "$EXIT_ENV"
+      fi
+      ok "APT index updated."
+      ;;
+    dnf)
+      if ! as_root dnf -y makecache; then
+        fail "dnf makecache failed."
+        return "$EXIT_ENV"
+      fi
+      ok "DNF cache built."
+      ;;
+    yum)
+      if ! as_root yum -y makecache; then
+        fail "yum makecache failed."
+        return "$EXIT_ENV"
+      fi
+      ok "YUM cache built."
+      ;;
+  esac
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# pkg_candidates — the same tool is named differently across distributions,
+# so each one gets an ordered list of names to try.
+# ---------------------------------------------------------------------------
+pkg_candidates() {
+  local cmd="$1"
+  case "$cmd" in
+    btop)       printf 'btop' ;;
+    htop)       printf 'htop' ;;
+    btm)        printf 'bottom btm' ;;
+    fastfetch)  printf 'fastfetch' ;;
+    lazygit)    printf 'lazygit' ;;
+    tig)        printf 'tig' ;;
+    delta)      printf 'git-delta delta' ;;
+    difft)      printf 'difftastic' ;;
+    gh)         printf 'gh github-cli' ;;
+    git)        printf 'git' ;;
+    ctags)      printf 'universal-ctags ctags exuberant-ctags' ;;
+    cscope)     printf 'cscope' ;;
+    shellcheck) printf 'shellcheck ShellCheck' ;;
+    shfmt)      printf 'shfmt' ;;
+    just)       printf 'just' ;;
+    entr)       printf 'entr' ;;
+    direnv)     printf 'direnv' ;;
+    lazydocker) printf 'lazydocker' ;;
+    dive)       printf 'dive' ;;
+    nvim)       printf 'neovim' ;;
+    tmux)       printf 'tmux' ;;
+    starship)   printf 'starship' ;;
+    zoxide)     printf 'zoxide' ;;
+    eza)        printf 'eza' ;;
+    bat)        printf 'bat' ;;
+    fd)         printf 'fd fd-find' ;;
+    rg)         printf 'ripgrep' ;;
+    sd)         printf 'sd sd-find-replace' ;;
+    fzf)        printf 'fzf' ;;
+    tree)       printf 'tree' ;;
+    dust)       printf 'dust du-dust' ;;
+    duf)        printf 'duf' ;;
+    ncdu)       printf 'ncdu' ;;
+    jq)         printf 'jq' ;;
+    yq)         printf 'yq' ;;
+    glow)       printf 'glow' ;;
+    tldr)       printf 'tlrc tldr' ;;
+    xh)         printf 'xh' ;;
+    gping)      printf 'gping' ;;
+    hyperfine)  printf 'hyperfine' ;;
+    wget)       printf 'wget' ;;
+    watch)      printf 'procps-ng procps watch' ;;
+    rsync)      printf 'rsync' ;;
+    unzip)      printf 'unzip' ;;
+    *)          printf '%s' "$cmd" ;;
+  esac
+}
+
+# try_package_candidates — walk the candidate names in order and stop at the
+# first one that is already installed or installs cleanly.
+try_package_candidates() {
+  local cmd="$1" pkg
+  for pkg in $(pkg_candidates "$cmd"); do
+    if package_installed "$pkg"; then
+      INSTALL_SOURCE="existing"
+      return 0
+    fi
+  done
+  for pkg in $(pkg_candidates "$cmd"); do
+    if package_available "$pkg"; then
+      info "Installing package $pkg"
+      if install_package "$pkg"; then
+        INSTALL_SOURCE="package manager"
+        return 0
+      fi
+      warn "Package install failed: $pkg"
+    fi
+  done
+  return 1
+}
+
+# ---------------------------------------------------------------------------
+# github_repo — the upstream project for tools the repositories often lack.
+# An empty result means "package manager only"; tig, cscope, entr and ctags
+# publish no cross-platform binaries at all.
+# ---------------------------------------------------------------------------
+github_repo() {
+  case "$1" in
+    btop)       printf 'aristocratos/btop' ;;
+    btm)        printf 'ClementTsang/bottom' ;;
+    fastfetch)  printf 'fastfetch-cli/fastfetch' ;;
+    lazygit)    printf 'jesseduffield/lazygit' ;;
+    delta)      printf 'dandavison/delta' ;;
+    difft)      printf 'Wilfred/difftastic' ;;
+    gh)         printf 'cli/cli' ;;
+    shellcheck) printf 'koalaman/shellcheck' ;;
+    shfmt)      printf 'mvdan/sh' ;;
+    just)       printf 'casey/just' ;;
+    direnv)     printf 'direnv/direnv' ;;
+    lazydocker) printf 'jesseduffield/lazydocker' ;;
+    dive)       printf 'wagoodman/dive' ;;
+    nvim)       printf 'neovim/neovim' ;;
+    starship)   printf 'starship/starship' ;;
+    zoxide)     printf 'ajeetdsouza/zoxide' ;;
+    eza)        printf 'eza-community/eza' ;;
+    bat)        printf 'sharkdp/bat' ;;
+    fd)         printf 'sharkdp/fd' ;;
+    rg)         printf 'BurntSushi/ripgrep' ;;
+    sd)         printf 'chmln/sd' ;;
+    fzf)        printf 'junegunn/fzf' ;;
+    dust)       printf 'bootandy/dust' ;;
+    duf)        printf 'muesli/duf' ;;
+    jq)         printf 'jqlang/jq' ;;
+    yq)         printf 'mikefarah/yq' ;;
+    glow)       printf 'charmbracelet/glow' ;;
+    tldr)       printf 'tldr-pages/tlrc' ;;
+    xh)         printf 'ducaale/xh' ;;
+    gping)      printf 'orf/gping' ;;
+    hyperfine)  printf 'sharkdp/hyperfine' ;;
+    *)          printf '' ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# GitHub release installation
+# ---------------------------------------------------------------------------
+github_api() {
+  local url="$1"
+  if [ -n "${GITHUB_TOKEN:-}" ]; then
+    curl -fsSL --retry 2 --connect-timeout 15 \
+      -H "Accept: application/vnd.github+json" \
+      -H "Authorization: Bearer $GITHUB_TOKEN" "$url"
+  else
+    curl -fsSL --retry 2 --connect-timeout 15 \
+      -H "Accept: application/vnd.github+json" "$url"
+  fi
+}
+
+# parse_assets — emit "url<TAB>sha256" per release asset. Collapsing the JSON
+# and splitting on '{' puts each asset object on its own line, which keeps the
+# digest paired with the download URL it belongs to. No jq: jq is one of the
+# tools we may still be installing.
+parse_assets() {
+  local chunk url digest
+  # The final chunk carries no trailing newline, so read returns non-zero on
+  # it; without the || guard the last asset in the release is dropped.
+  tr -d '\n' | tr '{' '\n' | while IFS= read -r chunk || [ -n "$chunk" ]; do
+    case "$chunk" in
+      *browser_download_url*) ;;
+      *) continue ;;
+    esac
+    url=$(printf '%s' "$chunk" | sed -n 's/.*"browser_download_url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+    digest=$(printf '%s' "$chunk" | sed -n 's/.*"digest"[[:space:]]*:[[:space:]]*"sha256:\([0-9a-fA-F]*\)".*/\1/p')
+    [ -n "$url" ] && printf '%s\t%s\n' "$url" "$digest"
+  done
+}
+
+strip_archive_ext() {
+  local name="$1"
+  case "$name" in
+    *.tar.gz)  printf '%s' "${name%.tar.gz}" ;;
+    *.tar.xz)  printf '%s' "${name%.tar.xz}" ;;
+    *.tar.bz2) printf '%s' "${name%.tar.bz2}" ;;
+    *.tgz)     printf '%s' "${name%.tgz}" ;;
+    *.tbz)     printf '%s' "${name%.tbz}" ;;
+    *.txz)     printf '%s' "${name%.txz}" ;;
+    *.zip)     printf '%s' "${name%.zip}" ;;
+    *.gz)      printf '%s' "${name%.gz}" ;;
+    *)         printf '%s' "$name" ;;
+  esac
+}
+
+is_archive() {
+  case "$1" in
+    *.tar.gz|*.tar.xz|*.tar.bz2|*.tgz|*.tbz|*.txz|*.zip|*.gz) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Signatures, checksums, distro packages and installers are never what we want.
+asset_excluded() {
+  case "$1" in
+    *.sha256|*.sha256sum|*.sha512|*.asc|*.sig|*.pem|*.sbom*|*.json|*.txt|*.md) return 0 ;;
+    *.deb|*.rpm|*.apk|*.msi|*.exe|*.pkg|*.dmg|*.appimage) return 0 ;;
+    *checksums*|*sha256sums*|*source*|*-src-*|*debug*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+asset_os_ok() {
+  local lower="$1" kw
+  for kw in $OS_KEYWORDS; do
+    case "$lower" in *"$kw"*) return 0 ;; esac
+  done
+  return 1
+}
+
+# select_asset — full suffix match on every architecture keyword first, then
+# substring containment. That ordering is what stops linux_arm from matching
+# an asset actually built for linux_arm64.
+select_asset() {
+  local assets="$1" kw url digest base lower stem
+  PICKED_URL=""
+  PICKED_DIGEST=""
+
+  for kw in $ARCH_KEYWORDS; do
+    while IFS="$(printf '\t')" read -r url digest; do
+      [ -n "$url" ] || continue
+      base=$(basename "$url")
+      lower=$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]')
+      asset_excluded "$lower" && continue
+      asset_os_ok "$lower" || continue
+      stem=$(strip_archive_ext "$lower")
+      if [ "$stem" != "${stem%"$kw"}" ]; then
+        PICKED_URL="$url"; PICKED_DIGEST="$digest"; return 0
+      fi
+    done <<ASSETS
+$assets
+ASSETS
+  done
+
+  for kw in $ARCH_KEYWORDS; do
+    while IFS="$(printf '\t')" read -r url digest; do
+      [ -n "$url" ] || continue
+      base=$(basename "$url")
+      lower=$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]')
+      asset_excluded "$lower" && continue
+      asset_os_ok "$lower" || continue
+      case "$lower" in
+        *"$kw"*) PICKED_URL="$url"; PICKED_DIGEST="$digest"; return 0 ;;
+      esac
+    done <<ASSETS
+$assets
+ASSETS
+  done
+
+  return 1
+}
+
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    return 1
+  fi
+}
+
+extract_archive() {
+  local file="$1" dest="$2"
+  case "$file" in
+    *.zip)
+      if command -v unzip >/dev/null 2>&1; then
+        unzip -q -o "$file" -d "$dest"
+      else
+        warn "unzip is not available yet; cannot extract $(basename "$file")."
+        return 1
+      fi
+      ;;
+    *.tar.gz|*.tgz)
+      tar -xf "$file" -C "$dest" ;;
+    *.gz)
+      # A lone gzipped binary, as some projects publish instead of a tarball.
+      gunzip -c "$file" > "$dest/$(basename "${file%.gz}")" ;;
+    *) tar -xf "$file" -C "$dest" ;;
+  esac
+}
+
+# find_payload — locate the executable inside an extracted tree. An exact
+# basename match wins; otherwise a prefix match catches projects that ship the
+# binary under a decorated name (yq_linux_amd64, shfmt_v3.10.0_linux_amd64,
+# direnv.linux-amd64), which is then installed under the plain command name.
+find_payload() {
+  local root="$1" cmd="$2" found
+  found=$(find "$root" -type f -name "$cmd" 2>/dev/null | head -1)
+  if [ -n "$found" ]; then printf '%s' "$found"; return 0; fi
+  found=$(find "$root" -type f -name "$cmd*" 2>/dev/null \
+    | grep -v -E '\.(1|md|txt|json|ps1|fish|zsh|bash|gz|tar)$' | head -1)
+  if [ -n "$found" ]; then printf '%s' "$found"; return 0; fi
+  return 1
+}
+
+# install_neovim_tree — Neovim needs its runtime directory, so the release is
+# kept whole under ~/.local/opt/nvim-github and only the binary is linked.
+install_neovim_tree() {
+  local extracted="$1" top target
+  top=$(find "$extracted" -maxdepth 2 -type d -name 'bin' 2>/dev/null | head -1)
+  [ -n "$top" ] || return 1
+  top=$(dirname "$top")
+  target="$LOCAL_OPT/nvim-github"
+  rm -rf "$target"
+  mkdir -p "$LOCAL_OPT"
+  cp -R "$top" "$target" || return 1
+  mkdir -p "$LOCAL_BIN"
+  ln -sf "$target/bin/nvim" "$LOCAL_BIN/nvim"
+  return 0
+}
+
+github_install() {
+  local cmd="$1" repo="$2"
+  local json assets tmp file actual payload
+
+  [ -n "$repo" ] || return 1
+  command -v curl >/dev/null 2>&1 || { warn "curl is required for GitHub release installs."; return 1; }
+
+  info "Querying the latest release of $repo"
+  json=$(github_api "https://api.github.com/repos/$repo/releases/latest") || {
+    warn "GitHub API call failed for $repo (rate limit? set GITHUB_TOKEN)."
+    return 1
+  }
+
+  assets=$(printf '%s' "$json" | parse_assets)
+  if [ -z "$assets" ]; then
+    warn "No downloadable assets in the latest $repo release."
+    return 1
+  fi
+
+  if ! select_asset "$assets"; then
+    warn "No $repo asset matches $OS_KIND/$ARCH."
+    return 1
+  fi
+
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/nanolander.XXXXXX") || return 1
+  file="$tmp/$(basename "$PICKED_URL")"
+
+  info "Downloading $(basename "$PICKED_URL")"
+  if ! curl -fsSL --retry 2 --connect-timeout 20 -o "$file" "$PICKED_URL"; then
+    warn "Download failed: $PICKED_URL"
+    rm -rf "$tmp"
+    return 1
+  fi
+
+  if [ -n "$PICKED_DIGEST" ]; then
+    actual=$(sha256_of "$file")
+    if [ -z "$actual" ]; then
+      warn "No sha256 tool available; skipping digest verification for $cmd."
+    elif [ "$actual" != "$PICKED_DIGEST" ]; then
+      fail "SHA-256 mismatch for $cmd; refusing to install."
+      rm -rf "$tmp"
+      return 1
+    else
+      ok "SHA-256 verified for $cmd."
+    fi
+  fi
+
+  mkdir -p "$tmp/x"
+  if is_archive "$file"; then
+    if ! extract_archive "$file" "$tmp/x"; then
+      warn "Could not extract $(basename "$file")."
+      rm -rf "$tmp"
+      return 1
+    fi
+  else
+    # Projects such as shfmt, direnv, jq and yq publish a bare binary.
+    cp "$file" "$tmp/x/$cmd"
+  fi
+
+  mkdir -p "$LOCAL_BIN"
+
+  if [ "$cmd" = "nvim" ]; then
+    if install_neovim_tree "$tmp/x"; then
+      rm -rf "$tmp"
+      INSTALL_SOURCE="GitHub release"
+      return 0
+    fi
+    warn "Unexpected Neovim release layout."
+    rm -rf "$tmp"
+    return 1
+  fi
+
+  payload=$(find_payload "$tmp/x" "$cmd") || {
+    warn "Could not find a $cmd executable inside the release archive."
+    rm -rf "$tmp"
+    return 1
+  }
+
+  if ! install -m 0755 "$payload" "$LOCAL_BIN/$cmd" 2>/dev/null; then
+    cp "$payload" "$LOCAL_BIN/$cmd" && chmod 0755 "$LOCAL_BIN/$cmd"
+  fi
+  rm -rf "$tmp"
+
+  if [ -x "$LOCAL_BIN/$cmd" ]; then
+    INSTALL_SOURCE="GitHub release"
+    return 0
+  fi
+  return 1
+}
+
+# ---------------------------------------------------------------------------
+# make_compat_links — Debian and Ubuntu ship fd as fdfind and bat as batcat.
+# Linking them under the upstream names keeps muscle memory portable.
+# ---------------------------------------------------------------------------
+make_compat_links() {
+  mkdir -p "$LOCAL_BIN"
+  if ! command -v fd >/dev/null 2>&1 && command -v fdfind >/dev/null 2>&1; then
+    ln -sf "$(command -v fdfind)" "$LOCAL_BIN/fd"
+    ok "Linked fdfind to $LOCAL_BIN/fd"
+  fi
+  if ! command -v bat >/dev/null 2>&1 && command -v batcat >/dev/null 2>&1; then
+    ln -sf "$(command -v batcat)" "$LOCAL_BIN/bat"
+    ok "Linked batcat to $LOCAL_BIN/bat"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# command_works — presence on PATH is not proof, so run the version query.
+# tmux uses -V, unzip uses -v, cscope uses -V, and entr has no version flag
+# at all, so for entr being on PATH is the test.
+# ---------------------------------------------------------------------------
+command_works() {
+  local cmd="$1"
+  command -v "$cmd" >/dev/null 2>&1 || return 1
+  case "$cmd" in
+    entr)          return 0 ;;
+    tmux)          tmux -V >/dev/null 2>&1 ;;
+    unzip)         unzip -v >/dev/null 2>&1 ;;
+    cscope)        cscope -V >/dev/null 2>&1 ;;
+    *)             "$cmd" --version >/dev/null 2>&1 ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# Result bookkeeping
+# ---------------------------------------------------------------------------
+record_result() {
+  local cmd="$1" status="$2" source="$3" path="$4"
+  RESULTS="${RESULTS}${cmd}|${status}|${source}|${path}
+"
+  case "$status" in
+    SUCCESS) COUNT_SUCCESS=$((COUNT_SUCCESS + 1)) ;;
+    FAILED)  COUNT_FAILED=$((COUNT_FAILED + 1)) ;;
+    SKIPPED) COUNT_SKIPPED=$((COUNT_SKIPPED + 1)) ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# ensure_linux_tool — the install pipeline for one tool: filter, skip when
+# already working, package manager, GitHub release fallback, then verify.
+# ---------------------------------------------------------------------------
+ensure_linux_tool() {
+  local cmd="$1" name="$2" repo path
+
+  if ! wants_tool "$cmd" "$name"; then
+    record_result "$cmd" "SKIPPED" "filter" "-"
+    return 0
+  fi
+
+  section "Installing $name"
+  INSTALL_SOURCE=""
+
+  if command_works "$cmd"; then
+    path=$(command -v "$cmd")
+    ok "$name already present: $path"
+    record_result "$cmd" "SUCCESS" "existing" "$path"
+    return 0
+  fi
+
+  if try_package_candidates "$cmd"; then
+    if [ "$INSTALL_SOURCE" = "package manager" ]; then
+      ok "Installed $name from the $PKG_MANAGER repository."
+    fi
+  else
+    warn "Package unavailable or failed: $name"
+    repo=$(github_repo "$cmd")
+    if [ -n "$repo" ]; then
+      if github_install "$cmd" "$repo"; then
+        ok "Installed $name from its official GitHub release."
+      else
+        INSTALL_SOURCE=""
+      fi
+    else
+      warn "$name has no official cross-platform release; repository only."
+    fi
+  fi
+
+  make_compat_links
+
+  if command_works "$cmd"; then
+    path=$(command -v "$cmd")
+    ok "$name verified: $path"
+    record_result "$cmd" "SUCCESS" "${INSTALL_SOURCE:-package manager}" "$path"
+    return 0
+  fi
+
+  fail "$name could not be installed or verified."
+  record_result "$cmd" "FAILED" "-" "-"
+  return 1
+}
+
+# ensure_brew_tool — the macOS path. Homebrew carries every tool in the
+# catalog, so this stays a thin wrapper with no release fallback.
+ensure_brew_tool() {
+  local cmd="$1" name="$2" path pkg
+
+  if ! wants_tool "$cmd" "$name"; then
+    record_result "$cmd" "SKIPPED" "filter" "-"
+    return 0
+  fi
+
+  section "Installing $name"
+
+  if command_works "$cmd"; then
+    path=$(command -v "$cmd")
+    ok "$name already present: $path"
+    record_result "$cmd" "SUCCESS" "existing" "$path"
+    return 0
+  fi
+
+  for pkg in $(pkg_candidates "$cmd"); do
+    if brew install "$pkg"; then
+      break
+    fi
+    warn "brew install $pkg failed."
+  done
+
+  if command_works "$cmd"; then
+    path=$(command -v "$cmd")
+    ok "$name verified: $path"
+    record_result "$cmd" "SUCCESS" "package manager" "$path"
+    return 0
+  fi
+
+  fail "$name could not be installed or verified."
+  record_result "$cmd" "FAILED" "-" "-"
+  return 1
+}
+
+install_all_tools() {
+  local cmd name category purpose
+  while IFS='|' read -r cmd name category purpose; do
+    [ -n "$cmd" ] || continue
+    if [ "$OS_KIND" = "macos" ]; then
+      ensure_brew_tool "$cmd" "$name"
+    else
+      ensure_linux_tool "$cmd" "$name"
+    fi
+  done <<CATALOG
+$TOOL_CATALOG
+CATALOG
+}
+
+# ---------------------------------------------------------------------------
+# Shell environment. Every line is compared in full before it is written, so
+# re-running the script never duplicates a line.
+# ---------------------------------------------------------------------------
+add_line_once() {
+  local file="$1" line="$2"
+  mkdir -p "$(dirname "$file")"
+  [ -f "$file" ] || : > "$file"
+  if grep -Fqx "$line" "$file" 2>/dev/null; then
+    return 1
+  fi
+  printf '%s\n' "$line" >> "$file"
+  return 0
+}
+
+configure_shell() {
+  section "Configuring the shell"
+  local rc="$SHELL_RC" sh="$SHELL_KIND"
+
+  # The rc file must receive a literal $HOME, not this process's expansion.
+  # shellcheck disable=SC2016
+  if add_line_once "$rc" 'export PATH="$HOME/.local/bin:$PATH"'; then
+    ok "PATH entry added to $rc"
+  else
+    info "PATH entry already present in $rc"
+  fi
+
+  if [ "$OS_KIND" = "macos" ] && [ -n "$BREW_BIN" ]; then
+    if add_line_once "$HOME/.zprofile" "eval \"\$($BREW_BIN shellenv)\""; then
+      ok "Homebrew shellenv added to ~/.zprofile"
+    else
+      info "Homebrew shellenv already present in ~/.zprofile"
+    fi
+  fi
+
+  if command_works zoxide; then
+    add_line_once "$rc" "eval \"\$(zoxide init $sh)\"" && ok "zoxide init added to $rc"
+  fi
+  if command_works starship; then
+    add_line_once "$rc" "eval \"\$(starship init $sh)\"" && ok "Starship init added to $rc"
+  fi
+  if command_works direnv; then
+    add_line_once "$rc" "eval \"\$(direnv hook $sh)\"" && ok "direnv hook added to $rc"
+  fi
+
+  # fzf lines are guarded and error-suppressed so that removing fzf later, or
+  # running an older fzf without --zsh/--bash, never breaks shell startup.
+  if command_works fzf; then
+    add_line_once "$rc" \
+      "command -v fzf >/dev/null 2>&1 && eval \"\$(fzf --$sh 2>/dev/null)\" 2>/dev/null" \
+      && ok "fzf key bindings added to $rc (Ctrl-R, Ctrl-T)"
+    if command_works fd; then
+      add_line_once "$rc" \
+        "export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'" \
+        && ok "FZF_DEFAULT_COMMAND added to $rc"
+    fi
+  fi
+
+  [ "$OPT_WITH_ALIASES" -eq 1 ] && add_alias_block "$rc"
+  return 0
+}
+
+# The alias block is marked so it can be removed by deleting everything
+# between the two markers. Each alias checks for its tool first, so a missing
+# tool never breaks the shell.
+add_alias_block() {
+  local rc="$1"
+  if grep -Fqx '# >>> nanolander aliases >>>' "$rc" 2>/dev/null; then
+    info "Alias block already present in $rc"
+    return 0
+  fi
+  cat >> "$rc" <<'ALIASES'
+# >>> nanolander aliases >>>
+command -v eza >/dev/null 2>&1 && alias ls='eza --group-directories-first'
+command -v eza >/dev/null 2>&1 && alias ll='eza -lah --group-directories-first --git'
+command -v eza >/dev/null 2>&1 && alias lt='eza --tree --level=2'
+command -v bat >/dev/null 2>&1 && alias cat='bat --paging=never'
+command -v dust >/dev/null 2>&1 && alias du='dust'
+command -v duf >/dev/null 2>&1 && alias df='duf'
+command -v btm >/dev/null 2>&1 && alias top='btm'
+# <<< nanolander aliases <<<
+ALIASES
+  ok "Alias block added to $rc"
+}
+
+configure_git_pager() {
+  section "Configuring git"
+  if ! command -v git >/dev/null 2>&1; then
+    warn "git is not available; skipping --configure-git."
+    return 1
+  fi
+  if ! command -v delta >/dev/null 2>&1; then
+    warn "git-delta is not available; skipping --configure-git."
+    return 1
+  fi
+  git config --global core.pager delta
+  git config --global interactive.diffFilter 'delta --color-only'
+  git config --global delta.navigate true
+  git config --global delta.line-numbers true
+  git config --global merge.conflictStyle zdiff3
+  ok "git-delta set as the global git pager."
+  return 0
+}
+
+current_login_shell() {
+  if [ "$OS_KIND" = "macos" ]; then
+    dscl . -read "/Users/$(id -un)" UserShell 2>/dev/null | awk '{print $2}'
+  else
+    getent passwd "$(id -un)" 2>/dev/null | cut -d: -f7
+  fi
+}
+
+set_default_shell() {
+  section "Setting the default shell"
+  if [ "$OS_KIND" = "ubuntu" ]; then
+    info "Ubuntu is configured through ~/.bashrc; --set-default-shell has no effect."
+    return 0
+  fi
+
+  local zsh_path current
+  if ! command -v zsh >/dev/null 2>&1; then
+    warn "zsh is not installed; cannot change the login shell."
+    return 1
+  fi
+  zsh_path=$(command -v zsh)
+  current=$(current_login_shell)
+
+  if [ "$current" = "$zsh_path" ]; then
+    info "Login shell is already $zsh_path"
+    return 0
+  fi
+
+  # chsh refuses a shell that is not listed in /etc/shells.
+  if [ "$OS_KIND" != "macos" ] && ! grep -Fqx "$zsh_path" /etc/shells 2>/dev/null; then
+    if [ -w /etc/shells ]; then
+      printf '%s\n' "$zsh_path" >> /etc/shells
+    else
+      as_root sh -c "printf '%s\\n' '$zsh_path' >> /etc/shells"
+    fi
+  fi
+
+  if chsh -s "$zsh_path"; then
+    ok "Login shell changed to $zsh_path (takes effect on next login)."
+    return 0
+  fi
+  warn "chsh failed; change the login shell manually with: chsh -s $zsh_path"
+  return 1
+}
+
+# Amazon Linux writes its configuration to ~/.zshrc, so zsh has to exist for
+# any of it to be read.
+ensure_zsh_present() {
+  [ "$SHELL_KIND" = "zsh" ] || return 0
+  command -v zsh >/dev/null 2>&1 && return 0
+  [ "$OS_KIND" = "macos" ] && return 0
+  info "Installing zsh so that $SHELL_RC is actually read."
+  if package_available zsh && install_package zsh; then
+    ok "zsh installed."
+  else
+    warn "Could not install zsh; $SHELL_RC will not be read until you do."
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# Installation summary
+# ---------------------------------------------------------------------------
+print_summary() {
+  local cmd status source path
+  section "Installation summary"
+  printf '%-12s %-8s %-16s %s\n' "TOOL" "STATUS" "SOURCE" "PATH"
+  printf '%-12s %-8s %-16s %s\n' "----" "------" "------" "----"
+  while IFS='|' read -r cmd status source path; do
+    [ -n "$cmd" ] || continue
+    printf '%-12s %-8s %-16s %s\n' "$cmd" "$status" "$source" "$path"
+  done <<RESULTS_EOF
+$RESULTS
+RESULTS_EOF
+  printf '\n'
+  info "Successful: $COUNT_SUCCESS"
+  info "Skipped by filter: $COUNT_SKIPPED"
+  info "Failed: $COUNT_FAILED"
+}
+
+print_next_steps() {
+  section "Next steps"
+  info "Reload your shell configuration:"
+  printf '    source %s\n' "$SHELL_RC"
+  info "Or just log out and back in."
+  [ -n "$LOG_FILE" ] && info "Full log: $LOG_FILE"
+}
+
+# ---------------------------------------------------------------------------
+# run_all — everything that belongs in the log, from environment detection to
+# the summary. Returns the process exit code.
+# ---------------------------------------------------------------------------
+run_all() {
+  trap 'printf "\n"; warn "Interrupted by user."; exit '"$EXIT_INTERRUPT" INT
+
+  local rc
+  printf 'nanolander %s — %s\n' "$NANOLANDER_VERSION" "$(date '+%Y-%m-%d %H:%M:%S')"
+
+  detect_environment
+  rc=$?
+  [ "$rc" -eq 0 ] || return "$rc"
+
+  ensure_sudo
+  rc=$?
+  [ "$rc" -eq 0 ] || return "$rc"
+
+  setup_homebrew
+  rc=$?
+  [ "$rc" -eq 0 ] || return "$rc"
+
+  refresh_package_index
+  rc=$?
+  [ "$rc" -eq 0 ] || return "$rc"
+
+  ensure_zsh_present
+  mkdir -p "$LOCAL_BIN" "$LOCAL_OPT"
+
+  install_all_tools
+
+  configure_shell
+  [ "$OPT_CONFIGURE_GIT" -eq 1 ] && configure_git_pager
+  [ "$OPT_SET_DEFAULT_SHELL" -eq 1 ] && set_default_shell
+
+  print_summary
+
+  if [ "$COUNT_FAILED" -gt 0 ]; then
+    warn "$COUNT_FAILED tool(s) failed. Search the log for '== Installing <name> ==' to see why."
+    print_next_steps
+    return "$EXIT_PARTIAL"
+  fi
+
+  ok "All requested tools passed verification."
+  print_next_steps
+  return "$EXIT_OK"
+}
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+main() {
+  trap 'printf "\n"; warn "Interrupted by user."; exit '"$EXIT_INTERRUPT" INT
+
+  parse_args "$@"
+  local rc=$?
+  if [ "$rc" -ne 0 ]; then
+    exit "$rc"
+  fi
+
+  if [ "$DO_HELP" -eq 1 ]; then
+    usage
+    exit "$EXIT_OK"
+  fi
+  if [ "$DO_LIST" -eq 1 ]; then
+    print_tool_catalog
+    exit "$EXIT_OK"
+  fi
+
+  # ~/.local/bin has to be searchable now, not just after the next login,
+  # otherwise command_works cannot see what we just installed.
+  export PATH="$LOCAL_BIN:$PATH"
+
+  # The log is a byte-for-byte copy of the screen, which is why the output
+  # helpers emit plain text.
+  if : > "$LOG_FILE" 2>/dev/null; then
+    run_all 2>&1 | tee -a "$LOG_FILE"
+    exit "${PIPESTATUS[0]}"
+  fi
+
+  warn "Cannot write $LOG_FILE; continuing without a log file."
+  LOG_FILE=""
+  run_all
+  exit $?
+}
+
+# Sourcing this file with NANOLANDER_LIB=1 loads the functions without running
+# anything, which is how the behaviour above can be exercised in isolation.
+if [ "${NANOLANDER_LIB:-0}" != "1" ]; then
+  main "$@"
+fi
