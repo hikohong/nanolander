@@ -1,0 +1,320 @@
+#!/usr/bin/env bash
+#
+# iterm-tune — iTerm2 performance tuning for macOS, the optional companion to
+# nanolander.
+#
+#   ./bin/iterm-tune              show the current settings, change nothing
+#   ./bin/iterm-tune --apply      back up the preferences, then apply
+#   ./bin/iterm-tune --restore    restore the most recent backup
+#
+# Showing is the default on purpose: look first, decide, then apply.
+#
+# Written for bash 3.2, the version macOS ships.
+
+set -uo pipefail
+
+readonly ITERM_TUNE_VERSION="1.0.0"
+readonly DOMAIN="com.googlecode.iterm2"
+readonly PB="/usr/libexec/PlistBuddy"
+readonly BACKUP_DIR="$HOME/.nanolander-backups"
+
+PLIST="$HOME/Library/Preferences/${DOMAIN}.plist"
+
+info() { printf '[INFO] %s\n' "$*"; }
+ok()   { printf '[ OK ] %s\n' "$*"; }
+warn() { printf '[WARN] %s\n' "$*"; }
+fail() { printf '[FAIL] %s\n' "$*"; }
+section() { printf '\n== %s ==\n' "$*"; }
+
+usage() {
+  cat <<USAGE
+iterm-tune ${ITERM_TUNE_VERSION} — iTerm2 performance tuning (macOS only)
+
+USAGE:
+  ./bin/iterm-tune              Show the current settings and what would change.
+  ./bin/iterm-tune --apply      Back up the preferences, then apply the changes.
+  ./bin/iterm-tune --restore    Restore the most recent backup.
+  ./bin/iterm-tune --help       Show this help.
+
+WHAT IT CHANGES:
+  * GPU rendering is left on when running on battery
+  * Rendering favours throughput
+  * Transparency and blur are turned off
+  * Ligatures are turned off
+  * Scrollback becomes bounded instead of unlimited
+
+  Trigger count and background images are reported only; those are your
+  content, so this script never touches them.
+
+NOTES:
+  iTerm2 must be closed before --apply, otherwise it will write its in-memory
+  preferences back over the file on quit. Backups live in
+  ${BACKUP_DIR}.
+USAGE
+}
+
+# ---------------------------------------------------------------------------
+# Global settings. One record per line: key|type|desired|label
+# ---------------------------------------------------------------------------
+GLOBAL_SETTINGS='DisableMetalWhenUnplugged|bool|false|Keep GPU rendering on battery
+MetalMaximizeThroughput|bool|true|Favour throughput over latency
+UseMetal|bool|true|Use the GPU (Metal) renderer'
+
+# ---------------------------------------------------------------------------
+# Per-profile settings, applied to every profile in "New Bookmarks".
+# ---------------------------------------------------------------------------
+PROFILE_SETTINGS='Transparency|real|0|Transparency off
+Blur|bool|false|Background blur off
+ASCII Ligatures|bool|false|ASCII ligatures off
+Non-ASCII Ligatures|bool|false|Non-ASCII ligatures off
+Unlimited Scrollback|bool|false|Scrollback bounded
+Scrollback Lines|integer|10000|Scrollback limit 10000 lines'
+
+require_macos() {
+  if [ "$(uname -s)" != "Darwin" ]; then
+    fail "iterm-tune only runs on macOS; this is $(uname -s)."
+    return 1
+  fi
+  if [ ! -x "$PB" ]; then
+    fail "PlistBuddy not found at $PB."
+    return 1
+  fi
+  return 0
+}
+
+# iTerm2 can be told to keep its preferences in a custom folder. Editing the
+# default plist in that case would silently do nothing.
+resolve_plist() {
+  local custom enabled
+  enabled=$(defaults read "$DOMAIN" LoadPrefsFromCustomFolder 2>/dev/null)
+  if [ "$enabled" = "1" ]; then
+    custom=$(defaults read "$DOMAIN" PrefsCustomFolder 2>/dev/null)
+    if [ -n "$custom" ] && [ -f "$custom/${DOMAIN}.plist" ]; then
+      PLIST="$custom/${DOMAIN}.plist"
+      info "iTerm2 uses a custom preferences folder: $PLIST"
+    fi
+  fi
+  if [ ! -f "$PLIST" ]; then
+    fail "iTerm2 preferences not found at $PLIST"
+    info "Launch iTerm2 once so it writes its preferences, then run this again."
+    return 1
+  fi
+  return 0
+}
+
+iterm_running() {
+  pgrep -x iTerm2 >/dev/null 2>&1 || pgrep -x iTerm >/dev/null 2>&1
+}
+
+pb_read() {
+  "$PB" -c "Print :$1" "$PLIST" 2>/dev/null
+}
+
+pb_write() {
+  local path="$1" type="$2" value="$3"
+  if "$PB" -c "Print :$path" "$PLIST" >/dev/null 2>&1; then
+    "$PB" -c "Set :$path $value" "$PLIST" >/dev/null 2>&1
+  else
+    "$PB" -c "Add :$path $type $value" "$PLIST" >/dev/null 2>&1
+  fi
+}
+
+profile_count() {
+  local i=0
+  while "$PB" -c "Print :New Bookmarks:$i:Guid" "$PLIST" >/dev/null 2>&1; do
+    i=$((i + 1))
+  done
+  printf '%s' "$i"
+}
+
+profile_name() {
+  local name
+  name=$(pb_read "New Bookmarks:$1:Name")
+  printf '%s' "${name:-profile $1}"
+}
+
+show_value() {
+  local current="$1" desired="$2" label="$3"
+  local mark="  "
+  [ -z "$current" ] && current="(unset)"
+  if [ "$current" = "$desired" ]; then
+    mark="ok"
+  else
+    mark="->"
+  fi
+  printf '  [%s] %-34s current: %-10s target: %s\n' "$mark" "$label" "$current" "$desired"
+}
+
+report() {
+  local key type desired label current i count name
+
+  section "iTerm2 preferences"
+  info "File: $PLIST"
+  count=$(profile_count)
+  info "Profiles: $count"
+
+  section "Global rendering"
+  while IFS='|' read -r key type desired label; do
+    [ -n "$key" ] || continue
+    current=$(pb_read "$key")
+    show_value "$current" "$desired" "$label"
+  done <<GLOBALS
+$GLOBAL_SETTINGS
+GLOBALS
+
+  i=0
+  while [ "$i" -lt "$count" ]; do
+    name=$(profile_name "$i")
+    section "Profile: $name"
+    while IFS='|' read -r key type desired label; do
+      [ -n "$key" ] || continue
+      current=$(pb_read "New Bookmarks:$i:$key")
+      show_value "$current" "$desired" "$label"
+    done <<PROFILES
+$PROFILE_SETTINGS
+PROFILES
+
+    # Advisory only — these are the user's content, not performance knobs we
+    # get to decide on.
+    local triggers bg
+    triggers=$("$PB" -c "Print :New Bookmarks:$i:Triggers" "$PLIST" 2>/dev/null | grep -c 'Dict {')
+    bg=$(pb_read "New Bookmarks:$i:Background Image Location")
+    if [ "${triggers:-0}" -gt 8 ]; then
+      warn "  $triggers triggers on this profile; each one runs a regex over every line."
+    fi
+    if [ -n "$bg" ]; then
+      warn "  Background image set ($bg); it costs a composite every frame."
+    fi
+    i=$((i + 1))
+  done
+}
+
+backup_plist() {
+  local stamp dest
+  mkdir -p "$BACKUP_DIR"
+  stamp=$(date +%Y%m%d-%H%M%S)
+  dest="$BACKUP_DIR/${DOMAIN}.plist.$stamp"
+  if cp "$PLIST" "$dest"; then
+    ok "Backed up to $dest"
+    return 0
+  fi
+  fail "Backup failed; not touching the preferences."
+  return 1
+}
+
+apply() {
+  local key type desired label i count name
+
+  if iterm_running; then
+    fail "iTerm2 is running. Quit it first, or it will write its in-memory"
+    info "preferences back over the file when it exits."
+    return 1
+  fi
+
+  backup_plist || return 1
+
+  section "Applying"
+  while IFS='|' read -r key type desired label; do
+    [ -n "$key" ] || continue
+    if pb_write "$key" "$type" "$desired"; then
+      ok "$label"
+    else
+      warn "Could not set $key"
+    fi
+  done <<GLOBALS
+$GLOBAL_SETTINGS
+GLOBALS
+
+  count=$(profile_count)
+  i=0
+  while [ "$i" -lt "$count" ]; do
+    name=$(profile_name "$i")
+    info "Profile: $name"
+    while IFS='|' read -r key type desired label; do
+      [ -n "$key" ] || continue
+      if pb_write "New Bookmarks:$i:$key" "$type" "$desired"; then
+        ok "  $label"
+      else
+        warn "  Could not set $key"
+      fi
+    done <<PROFILES
+$PROFILE_SETTINGS
+PROFILES
+    i=$((i + 1))
+  done
+
+  # cfprefsd caches the file; without this the next read serves stale values.
+  killall cfprefsd >/dev/null 2>&1
+  defaults read "$DOMAIN" >/dev/null 2>&1
+
+  section "Done"
+  ok "Applied. Start iTerm2 again to pick up the new settings."
+  info "Undo with: ./bin/iterm-tune --restore"
+  return 0
+}
+
+restore() {
+  local latest="" candidate
+  if [ ! -d "$BACKUP_DIR" ]; then
+    fail "No backup directory at $BACKUP_DIR"
+    return 1
+  fi
+  # Backups are named with a sortable timestamp, so the last glob match is the
+  # most recent one. Avoids parsing ls output.
+  for candidate in "$BACKUP_DIR/${DOMAIN}.plist."*; do
+    [ -f "$candidate" ] && latest="$candidate"
+  done
+  if [ -z "$latest" ]; then
+    fail "No backup found in $BACKUP_DIR"
+    return 1
+  fi
+  if iterm_running; then
+    fail "iTerm2 is running. Quit it first."
+    return 1
+  fi
+  if cp "$latest" "$PLIST"; then
+    killall cfprefsd >/dev/null 2>&1
+    defaults read "$DOMAIN" >/dev/null 2>&1
+    ok "Restored $latest"
+    return 0
+  fi
+  fail "Restore failed."
+  return 1
+}
+
+main() {
+  local action="report"
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -h|--help) usage; exit 0 ;;
+      --version) printf 'iterm-tune %s\n' "$ITERM_TUNE_VERSION"; exit 0 ;;
+      --apply)   action="apply" ;;
+      --restore) action="restore" ;;
+      *)
+        fail "Unknown option: $1"
+        printf 'Try ./bin/iterm-tune --help\n'
+        exit 64 ;;
+    esac
+    shift
+  done
+
+  require_macos || exit 1
+  resolve_plist || exit 1
+
+  case "$action" in
+    report)
+      report
+      section "Nothing was changed"
+      info "Run ./bin/iterm-tune --apply to apply the targets above."
+      ;;
+    apply)   apply || exit 1 ;;
+    restore) restore || exit 1 ;;
+  esac
+  exit 0
+}
+
+# Sourcing with ITERM_TUNE_LIB=1 loads the functions without running anything.
+if [ "${ITERM_TUNE_LIB:-0}" != "1" ]; then
+  main "$@"
+fi
