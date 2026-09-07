@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>nanolander</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+TC:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
   --bg:#121724; --panel:#1a2032; --panel-2:#212940; --line:#2c3550;
@@ -14,13 +14,13 @@
   --info:#6fb2ff; --ok:#4fd18b; --warn:#f2c14e; --fail:#ff6f6b; --accent:#b388ff;
   --radius:10px;
   --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  --sans:"IBM Plex Sans TC","PingFang TC","Noto Sans TC",-apple-system,"Segoe UI",sans-serif;
+  --sans:"IBM Plex Sans",-apple-system,"Segoe UI",sans-serif;
 }
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
 body{
   margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);
-  font-size:16px;line-height:1.75;-webkit-font-smoothing:antialiased;
+  font-size:16px;line-height:1.7;-webkit-font-smoothing:antialiased;
 }
 a{color:var(--info);text-decoration:none;border-bottom:1px solid rgba(111,178,255,.35)}
 a:hover{border-bottom-color:var(--info)}
@@ -33,16 +33,14 @@ nav.side{position:sticky;top:32px;padding-top:8px;font-family:var(--mono);font-s
 nav.side a{display:block;color:var(--faint);border:0;padding:5px 0 5px 12px;border-left:2px solid var(--line)}
 nav.side a:hover,nav.side a.on{color:var(--fg);border-left-color:var(--accent)}
 
-/* hero */
 header.hero{padding:56px 0 40px;border-bottom:1px solid var(--line);background:
   radial-gradient(900px 320px at 15% -10%,rgba(179,136,255,.16),transparent 70%),
   radial-gradient(700px 300px at 85% 0%,rgba(79,209,139,.10),transparent 70%)}
-h1{font-size:clamp(28px,4.4vw,44px);line-height:1.25;margin:0 0 12px;font-weight:600;letter-spacing:-.01em}
+h1{font-size:clamp(28px,4.4vw,44px);line-height:1.2;margin:0 0 12px;font-weight:600;letter-spacing:-.015em}
 .tag{font-family:var(--mono);color:var(--accent);font-size:14px;margin:0 0 14px}
-.lede{color:var(--dim);max-width:60ch;margin:0 0 28px}
+.lede{color:var(--dim);max-width:58ch;margin:0 0 28px}
 .hero-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:28px;align-items:start}
 
-/* terminal */
 .term{background:#0e1220;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;
   box-shadow:0 18px 40px -28px rgba(0,0,0,.9)}
 .term .bar{display:flex;align-items:center;gap:8px;padding:9px 14px;background:var(--panel);
@@ -58,21 +56,19 @@ h1{font-size:clamp(28px,4.4vw,44px);line-height:1.25;margin:0 0 12px;font-weight
 .fact{display:flex;gap:12px;align-items:baseline;padding:12px 14px;background:var(--panel);
   border:1px solid var(--line);border-radius:var(--radius)}
 .fact b{font-family:var(--mono);font-size:20px;font-weight:600;color:var(--fg);min-width:2.6em}
-.fact span{color:var(--dim);font-size:14px}
+.fact span{color:var(--dim);font-size:14px;line-height:1.55}
 
-/* sections */
 section{padding:56px 0;border-bottom:1px solid var(--line)}
-h2{font-size:25px;font-weight:600;margin:0 0 6px;letter-spacing:-.01em}
-.sub{color:var(--faint);margin:0 0 28px;max-width:66ch}
+h2{font-size:25px;font-weight:600;margin:0 0 6px;letter-spacing:-.015em}
+.sub{color:var(--faint);margin:0 0 28px;max-width:70ch}
 h3{font-size:16px;font-weight:600;margin:32px 0 12px;color:var(--fg)}
-p{max-width:70ch}
+p{max-width:72ch}
 
 pre.block{background:#0e1220;border:1px solid var(--line);border-left:3px solid var(--ok);
   border-radius:8px;padding:14px 16px;font-family:var(--mono);font-size:13.5px;overflow-x:auto;margin:14px 0}
 pre.block .p{color:var(--ok)}
 pre.block .c{color:var(--faint)}
 
-/* options */
 .opts{display:grid;gap:14px}
 .opt{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px}
 .opt kbd{font-family:var(--mono);font-size:14px;background:var(--panel-2);border:1px solid var(--line);
@@ -80,7 +76,6 @@ pre.block .c{color:var(--faint)}
 .opt p{margin:10px 0 0;color:var(--dim);font-size:14.5px}
 .opt .ex{font-family:var(--mono);font-size:13px;color:var(--faint);margin-top:8px}
 
-/* tools */
 .filter{display:flex;gap:10px;align-items:center;margin-bottom:24px;flex-wrap:wrap}
 .filter input{background:var(--panel);border:1px solid var(--line);border-radius:8px;color:var(--fg);
   font-family:var(--mono);font-size:14px;padding:9px 13px;width:280px;max-width:100%}
@@ -94,14 +89,13 @@ pre.block .c{color:var(--faint)}
   border-radius:8px;padding:14px 16px}
 .card .cmd{font-family:var(--mono);font-size:14.5px;font-weight:600;color:var(--c)}
 .card .nm{color:var(--faint);font-size:12.5px;font-family:var(--mono);margin-left:8px}
-.card p{margin:6px 0 10px;font-size:14px;color:var(--dim);line-height:1.6}
+.card p{margin:6px 0 10px;font-size:14px;color:var(--dim);line-height:1.55}
 .card .run{font-family:var(--mono);font-size:12.5px;color:var(--faint);background:#0e1220;
   border:1px solid var(--line);border-radius:6px;padding:6px 9px;cursor:pointer;display:block;width:100%;
   text-align:left;transition:color .15s,border-color .15s}
 .card .run:hover{color:var(--fg);border-color:var(--c)}
 .card .run.copied{color:var(--ok);border-color:var(--ok)}
 
-/* tables */
 table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14.5px}
 th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top}
 th{color:var(--faint);font-weight:500;font-size:13px}
@@ -114,10 +108,9 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
 .p-info{color:var(--info);background:rgba(111,178,255,.12)}
 .p-dim{color:var(--faint);background:rgba(147,160,189,.10)}
 
-/* how it works */
 .fn{border-left:2px solid var(--line);padding:0 0 0 20px;margin:0}
 .fn div{margin-bottom:22px;position:relative}
-.fn div::before{content:"";position:absolute;left:-25px;top:11px;width:8px;height:8px;border-radius:50%;
+.fn div::before{content:"";position:absolute;left:-25px;top:10px;width:8px;height:8px;border-radius:50%;
   background:var(--panel-2);border:2px solid var(--info)}
 .fn h4{margin:0 0 4px;font-family:var(--mono);font-size:14.5px;font-weight:600;color:var(--info)}
 .fn p{margin:0;color:var(--dim);font-size:14.5px}
@@ -125,7 +118,7 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
 .note{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--warn);
   border-radius:8px;padding:14px 18px;color:var(--dim);font-size:14.5px;margin:16px 0}
 .note b{color:var(--fg);font-weight:600}
-ul.plain{padding-left:20px;color:var(--dim);font-size:14.5px;max-width:72ch}
+ul.plain{padding-left:20px;color:var(--dim);font-size:14.5px;max-width:74ch}
 ul.plain li{margin-bottom:8px}
 ul.plain b{color:var(--fg);font-weight:600}
 
@@ -151,8 +144,8 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
 <header class="hero">
   <div class="wrap">
     <h1>nanolander</h1>
-    <p class="tag">帶著整套裝備降落在任何一台機器上</p>
-    <p class="lede">一支腳本，在 macOS、Ubuntu、Amazon Linux 2 與 Amazon Linux 2023 上裝好同一套現代終端工具，並自動完成 shell 設定。套件庫有的用套件庫，沒有的抓官方 GitHub Release。</p>
+    <p class="tag">Land on any machine with your whole kit</p>
+    <p class="lede">One script that installs the same modern terminal toolkit on macOS, Ubuntu, Amazon Linux 2, and Amazon Linux 2023, then wires up your shell. Packages come from the system repository when available, and from official GitHub releases when not.</p>
 
     <div class="hero-grid">
       <div class="term load" id="term">
@@ -178,15 +171,15 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
 <span class="ln">git-delta        <span class="o">SUCCESS</span>   GitHub release</span>
 <span class="ln">lazydocker       <span class="d">SKIPPED</span>   filter</span>
 <span class="ln"> </span>
-<span class="ln"><span class="i">[INFO]</span> Successful: 32　<span class="i">[INFO]</span> Skipped by filter: 2</span>
+<span class="ln"><span class="i">[INFO]</span> Successful: 32   <span class="i">[INFO]</span> Skipped by filter: 2</span>
 <span class="ln"><span class="o">[ OK ]</span> All requested tools passed verification.</span></pre>
       </div>
 
       <div class="facts">
-        <div class="fact"><b>44</b><span>套工具，涵蓋監控、Git、程式碼導覽、容器、搜尋、資料處理與網路量測</span></div>
-        <div class="fact"><b>4</b><span>種作業系統，各自對應 brew／apt／dnf／yum 與正確的 shell 設定檔</span></div>
-        <div class="fact"><b>3</b><span>種 CPU 架構完整支援：x86_64、arm64、armv7（armv6 部分支援）</span></div>
-        <div class="fact"><b>7</b><span>個命令列選項，可只裝需要的工具、加別名、設定 Git 分頁器</span></div>
+        <div class="fact"><b>44</b><span>tools covering monitoring, Git, code navigation, containers, search, data, and network work</span></div>
+        <div class="fact"><b>4</b><span>operating systems, each mapped to brew, apt, dnf, or yum and the right shell file</span></div>
+        <div class="fact"><b>3</b><span>CPU architectures fully covered: x86_64, arm64, armv7 (armv6 partially)</span></div>
+        <div class="fact"><b>7</b><span>command-line options to install a subset, add aliases, or set the Git pager</span></div>
       </div>
     </div>
   </div>
@@ -194,378 +187,377 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
 
 <div class="wrap layout">
   <nav class="side">
-    <a href="index.en.html" style="border-left-color:var(--accent);color:var(--accent);margin-bottom:8px">English</a>
-    <a href="#start">快速開始</a>
-    <a href="#options">命令列選項</a>
-    <a href="#tools">工具總覽</a>
-    <a href="#how">運作方式</a>
-    <a href="#shell">Shell 設定</a>
-    <a href="#status">日誌與狀態</a>
-    <a href="#notes">注意事項</a>
-    <a href="#changes">本次更新</a>
+    <a href="#start">Getting started</a>
+    <a href="#options">Options</a>
+    <a href="#tools">Tools</a>
+    <a href="#how">How it works</a>
+    <a href="#shell">Shell setup</a>
+    <a href="#status">Logs and exit codes</a>
+    <a href="#notes">Good to know</a>
+    <a href="#changes">What changed</a>
   </nav>
 
   <main>
 
   <section id="start">
-    <h2>快速開始</h2>
-    <p class="sub">下載後直接執行即可，腳本會自行判斷平台與架構。</p>
-<pre class="block"><span class="c"># 安裝全部工具</span>
+    <h2>Getting started</h2>
+    <p class="sub">Download and run it. The script detects the platform and CPU architecture on its own.</p>
+<pre class="block"><span class="c"># install everything</span>
 <span class="p">$</span> git clone https://github.com/hikohong/nanolander.git
 <span class="p">$</span> cd nanolander
 <span class="p">$</span> ./bin/nanolander
 
-<span class="c"># 完成後啟用設定（Ubuntu 用 ~/.bashrc）</span>
+<span class="c"># load the new settings (Ubuntu uses ~/.bashrc)</span>
 <span class="p">$</span> source ~/.zshrc</pre>
 
-    <h3>支援環境</h3>
+    <h3>Supported platforms</h3>
     <table>
-      <thead><tr><th>作業系統</th><th>套件管理器</th><th>Shell 設定檔</th></tr></thead>
+      <thead><tr><th>Operating system</th><th>Package manager</th><th>Shell file</th></tr></thead>
       <tbody>
-        <tr><td>macOS</td><td><code>Homebrew</code></td><td><code>~/.zshrc</code>（另設 <code>~/.zprofile</code>）</td></tr>
+        <tr><td>macOS</td><td><code>Homebrew</code></td><td><code>~/.zshrc</code> (plus <code>~/.zprofile</code>)</td></tr>
         <tr><td>Ubuntu</td><td><code>APT</code></td><td><code>~/.bashrc</code></td></tr>
-        <tr><td>Amazon Linux 2／舊版</td><td><code>YUM</code></td><td><code>~/.zshrc</code></td></tr>
+        <tr><td>Amazon Linux 2 / legacy</td><td><code>YUM</code></td><td><code>~/.zshrc</code></td></tr>
         <tr><td>Amazon Linux 2023</td><td><code>DNF</code></td><td><code>~/.zshrc</code></td></tr>
       </tbody>
     </table>
     <table>
-      <thead><tr><th>CPU 架構</th><th>支援程度</th></tr></thead>
+      <thead><tr><th>Architecture</th><th>Coverage</th></tr></thead>
       <tbody>
-        <tr><td><code>x86_64 / amd64</code></td><td><span class="pill p-ok">全部工具</span></td></tr>
-        <tr><td><code>arm64 / aarch64</code></td><td><span class="pill p-ok">全部工具</span></td></tr>
-        <tr><td><code>armv7</code></td><td><span class="pill p-warn">多數工具</span> dive 無官方 armv7 版本</td></tr>
-        <tr><td><code>armv6</code></td><td><span class="pill p-dim">部分工具</span> 建議搭配 <code>--only</code> 指定</td></tr>
+        <tr><td><code>x86_64 / amd64</code></td><td><span class="pill p-ok">all tools</span></td></tr>
+        <tr><td><code>arm64 / aarch64</code></td><td><span class="pill p-ok">all tools</span></td></tr>
+        <tr><td><code>armv7</code></td><td><span class="pill p-warn">most tools</span> dive has no official armv7 build</td></tr>
+        <tr><td><code>armv6</code></td><td><span class="pill p-dim">some tools</span> pair it with <code>--only</code></td></tr>
       </tbody>
     </table>
   </section>
 
   <section id="options">
-    <h2>命令列選項</h2>
-    <p class="sub">全部可以組合使用，例如 <code>--set-default-shell --with-aliases --configure-git</code>。</p>
+    <h2>Options</h2>
+    <p class="sub">All of them combine, for example <code>--set-default-shell --with-aliases --configure-git</code>.</p>
     <div class="opts">
       <div class="opt">
         <kbd>--list-tools</kbd>
-        <p>列出腳本可安裝的所有工具與用途，先看清單再決定要不要過濾。</p>
+        <p>Print every tool the script can install, with its purpose, so you can see the list before filtering.</p>
         <div class="ex">./bin/nanolander --list-tools</div>
       </div>
       <div class="opt">
         <kbd>--only a,b,c</kbd>
-        <p>只安裝指定工具，其餘標為 <span class="pill p-dim">SKIPPED</span>。適合補裝少數項目，或在網路受限的機器上快速裝必要工具。指令名或工具名都可以。</p>
+        <p>Install just these tools; everything else is marked <span class="pill p-dim">SKIPPED</span>. Useful for topping up a few tools, or for machines with limited network access. Match by command name or tool name.</p>
         <div class="ex">./bin/nanolander --only nvim,tmux,fzf,ripgrep</div>
       </div>
       <div class="opt">
         <kbd>--skip a,b,c</kbd>
-        <p>安裝全部但排除指定項目。沒有 Docker 的機器可以排除 lazydocker 與 dive。</p>
+        <p>Install everything except these. Machines without Docker can drop lazydocker and dive.</p>
         <div class="ex">./bin/nanolander --skip lazydocker,dive</div>
       </div>
       <div class="opt">
         <kbd>--set-default-shell</kbd>
-        <p>在 macOS 與 Amazon Linux 上把登入 shell 改成 zsh，已經是 zsh 就不動作。Ubuntu 使用 bash 設定，此選項不生效。</p>
+        <p>On macOS and Amazon Linux, change the login shell to zsh. It does nothing if zsh is already the login shell, and Ubuntu keeps its bash setup.</p>
       </div>
       <div class="opt">
         <kbd>--with-aliases</kbd>
-        <p>加入可選別名區塊：<code>ls ll lt</code> 導向 eza、<code>cat</code> 導向 bat、<code>du</code> 導向 dust、<code>df</code> 導向 duf、<code>top</code> 導向 btm。每行都先確認工具存在才生效，區塊有起訖標記，隨時可整段刪除。</p>
+        <p>Add an optional alias block: <code>ls ll lt</code> to eza, <code>cat</code> to bat, <code>du</code> to dust, <code>df</code> to duf, <code>top</code> to btm. Every line checks that the tool exists first, and the block is fenced with start and end markers so you can remove it in one go.</p>
       </div>
       <div class="opt">
         <kbd>--configure-git</kbd>
-        <p>把 git-delta 設為全域 Git 分頁器，<code>git diff</code>、<code>git log</code>、<code>git show</code> 都有語法高亮與行號；同時把合併衝突樣式設為 zdiff3。git 或 delta 不存在時會警告並略過。</p>
+        <p>Set git-delta as the global Git pager, so <code>git diff</code>, <code>git log</code>, and <code>git show</code> get syntax highlighting and line numbers, and switch merge conflicts to zdiff3. Skipped with a warning if git or delta is missing.</p>
       </div>
       <div class="opt">
         <kbd>--help</kbd>
-        <p>顯示使用說明與範例，不安裝任何東西。</p>
+        <p>Show usage and examples without installing anything.</p>
       </div>
     </div>
   </section>
 
   <section id="tools">
-    <h2>工具總覽</h2>
-    <p class="sub">每項都附一行上手指令，點指令即可複製。</p>
+    <h2>Tools</h2>
+    <p class="sub">Each one comes with a starter command. Click a command to copy it.</p>
 
     <div class="filter">
-      <input id="q" type="search" placeholder="搜尋工具或用途…" aria-label="搜尋工具">
-      <span class="count" id="count">44 套工具</span>
+      <input id="q" type="search" placeholder="Search tools or purpose…" aria-label="Search tools">
+      <span class="count" id="count">44 tools</span>
     </div>
 
     <div class="group" style="--c:#6fb2ff">
-      <h3>系統與資源監控</h3>
+      <h3>Monitoring</h3>
       <div class="cards">
         <div class="card"><span class="cmd">btop</span><span class="nm">btop</span>
-          <p>圖形化資源監控，CPU、記憶體、磁碟、網路都有即時曲線，可用滑鼠點選程序。</p>
+          <p>Colourful resource monitor with live graphs for CPU, memory, disk, and network, and mouse-driven process selection.</p>
           <button class="run">btop</button></div>
         <div class="card"><span class="cmd">htop</span><span class="nm">htop</span>
-          <p>經典互動式程序檢視器，快速排序找出吃資源的程序並送出訊號。</p>
+          <p>Classic interactive process viewer for sorting by load and signalling heavy processes.</p>
           <button class="run">htop -u $(whoami)</button></div>
         <div class="card"><span class="cmd">btm</span><span class="nm">bottom</span>
-          <p>另一套監控介面，欄位可設定、程序表可搜尋，在遠端或低階機器上更輕量。</p>
+          <p>Second monitor with configurable widgets and a searchable process table; lighter on remote or modest machines.</p>
           <button class="run">btm --basic</button></div>
         <div class="card"><span class="cmd">fastfetch</span><span class="nm">fastfetch</span>
-          <p>快速列出系統資訊，登入遠端主機時確認環境很實用。</p>
+          <p>Instant system summary, handy for confirming which box you just SSH'd into.</p>
           <button class="run">fastfetch</button></div>
       </div>
     </div>
 
     <div class="group" style="--c:#b388ff">
-      <h3>Git 與開發流程</h3>
+      <h3>Git and development</h3>
       <div class="cards">
         <div class="card"><span class="cmd">lazygit</span><span class="nm">lazygit</span>
-          <p>Git 的終端圖形介面，逐段暫存、互動式 rebase、瀏覽歷史都不必背指令。</p>
+          <p>Terminal UI for Git: stage hunks, run interactive rebases, and browse history without memorising flags.</p>
           <button class="run">lazygit</button></div>
         <div class="card"><span class="cmd">tig</span><span class="nm">tig</span>
-          <p>ncurses 介面的 Git 瀏覽器，看 log、blame 與逐行變更比純 CLI 直覺。</p>
+          <p>ncurses Git browser for reading log, blame, and per-line history far faster than plain CLI output.</p>
           <button class="run">tig blame src/main.c</button></div>
         <div class="card"><span class="cmd">delta</span><span class="nm">git-delta</span>
-          <p>Git diff 專用分頁器，語法高亮、行號與並排比較。</p>
+          <p>Pager built for Git diffs, with syntax highlighting, line numbers, and side-by-side view.</p>
           <button class="run">git diff | delta</button></div>
         <div class="card"><span class="cmd">gh</span><span class="nm">GitHub CLI</span>
-          <p>在終端操作 GitHub 的 PR、Issue、Release 與 Actions。</p>
+          <p>Work with GitHub pull requests, issues, releases, and Actions from the shell.</p>
+          <button class="run">gh pr create --fill</button></div>
         <div class="card"><span class="cmd">difft</span><span class="nm">difftastic</span>
-          <p>結構化 diff，比較語法樹而非文字行，重排與縮排變動不會被誤判。</p>
+          <p>Structural diff that compares syntax trees, so reindents and moved blocks stop reading as changes.</p>
           <button class="run">difft old.py new.py</button></div>
         <div class="card"><span class="cmd">git</span><span class="nm">Git</span>
-          <p>版本控制本體，四種平台都會確認安裝並驗證版本。</p>
+          <p>Version control itself, installed and version-checked on all four platforms.</p>
           <button class="run">git status -sb</button></div>
-          <button class="run">gh pr create --fill</button></div>
       </div>
     </div>
 
 
     <div class="group" style="--c:#ffa1d2">
-      <h3>程式碼導覽與品質</h3>
+      <h3>Code navigation and quality</h3>
       <div class="cards">
         <div class="card"><span class="cmd">ctags</span><span class="nm">universal-ctags</span>
-          <p>產生 tag 索引，讓 Vim／Neovim 直接跳到函式與變數定義。</p>
+          <p>Build tag indexes so Vim and Neovim can jump straight to a definition.</p>
           <button class="run">ctags -R --exclude=.git .</button></div>
         <div class="card"><span class="cmd">cscope</span><span class="nm">cscope</span>
-          <p>C／C++ 交叉參照瀏覽器，查詢符號、呼叫者與被呼叫者。</p>
+          <p>Cross-reference browser for C and C++ symbols, callers, and callees.</p>
           <button class="run">cscope -Rbq</button></div>
         <div class="card"><span class="cmd">shellcheck</span><span class="nm">ShellCheck</span>
-          <p>Shell 腳本靜態檢查，找出引號、可攜性與常見寫法問題。</p>
+          <p>Static analysis for shell scripts: quoting, portability, and the classic footguns.</p>
           <button class="run">shellcheck bin/nanolander</button></div>
         <div class="card"><span class="cmd">shfmt</span><span class="nm">shfmt</span>
-          <p>Shell 腳本格式化工具，統一 sh／bash 的縮排與寫法。</p>
+          <p>Formatter for sh and bash, keeping indentation and style consistent across a repo.</p>
           <button class="run">shfmt -i 2 -w script.sh</button></div>
       </div>
     </div>
 
     <div class="group" style="--c:#8fbcff">
-      <h3>專案工作流程</h3>
+      <h3>Project workflow</h3>
       <div class="cards">
         <div class="card"><span class="cmd">just</span><span class="nm">just</span>
-          <p>專案任務執行器，recipe 寫法比 Makefile 單純。</p>
+          <p>Task runner for per-project recipes, with syntax simpler than a Makefile.</p>
           <button class="run">just --list</button></div>
         <div class="card"><span class="cmd">entr</span><span class="nm">entr</span>
-          <p>監看檔案變動就重跑指令，寫測試迴圈很好用。</p>
+          <p>Re-run a command whenever watched files change; the easiest test loop there is.</p>
           <button class="run">fd -e py | entr -c pytest</button></div>
         <div class="card"><span class="cmd">direnv</span><span class="nm">direnv</span>
-          <p>進入目錄自動載入環境變數，離開自動卸載，安裝後自動啟用。</p>
+          <p>Load environment variables on entering a directory and unload them on leaving. Enabled automatically.</p>
           <button class="run">direnv allow</button></div>
       </div>
     </div>
 
     <div class="group" style="--c:#56d1d1">
-      <h3>容器</h3>
+      <h3>Containers</h3>
       <div class="cards">
         <div class="card"><span class="cmd">lazydocker</span><span class="nm">lazydocker</span>
-          <p>Docker 的終端圖形介面，檢視容器、映像檔、Volume 與即時日誌。</p>
+          <p>Terminal UI for Docker containers, images, volumes, and streaming logs.</p>
           <button class="run">lazydocker</button></div>
         <div class="card"><span class="cmd">dive</span><span class="nm">dive</span>
-          <p>逐層拆解 Docker 映像檔，找出多餘檔案與可精簡的空間。</p>
+          <p>Inspect a Docker image layer by layer and find the wasted space.</p>
           <button class="run">dive nginx:latest</button></div>
       </div>
     </div>
 
     <div class="group" style="--c:#4fd18b">
-      <h3>終端機環境</h3>
+      <h3>Terminal environment</h3>
       <div class="cards">
         <div class="card"><span class="cmd">nvim</span><span class="nm">Neovim</span>
-          <p>現代化 Vim 分支，支援 Lua 設定與 LSP，作為預設終端編輯器。</p>
+          <p>Modern Vim fork with Lua config and LSP support, installed as the default terminal editor.</p>
           <button class="run">nvim file.py</button></div>
         <div class="card"><span class="cmd">tmux</span><span class="nm">tmux</span>
-          <p>終端多工器，保留 session 與分割視窗，SSH 斷線後工作不會中斷。</p>
+          <p>Terminal multiplexer for persistent sessions and splits, so a dropped SSH connection doesn't kill your work.</p>
           <button class="run">tmux new -s dev</button></div>
         <div class="card"><span class="cmd">starship</span><span class="nm">Starship</span>
-          <p>跨 shell 的快速提示字元，顯示 Git 狀態、語言版本與執行時間，安裝後自動啟用。</p>
+          <p>Fast cross-shell prompt showing Git state, language versions, and run times. Enabled automatically.</p>
           <button class="run">starship preset nerd-font-symbols</button></div>
         <div class="card"><span class="cmd">zoxide</span><span class="nm">zoxide</span>
-          <p>記憶造訪頻率的 cd 進化版，輸入片段就跳到常用目錄。</p>
+          <p>A cd that remembers where you go, so a fragment of a path is enough to jump there.</p>
           <button class="run">z proj</button></div>
       </div>
     </div>
 
     <div class="group" style="--c:#f2c14e">
-      <h3>檔案瀏覽與搜尋</h3>
+      <h3>Files and search</h3>
       <div class="cards">
         <div class="card"><span class="cmd">eza</span><span class="nm">eza</span>
-          <p>ls 的現代替代品，支援顏色、圖示、樹狀檢視與 Git 狀態。</p>
+          <p>Modern ls replacement with colours, icons, tree view, and Git status.</p>
           <button class="run">eza -lah --git</button></div>
         <div class="card"><span class="cmd">bat</span><span class="nm">bat</span>
-          <p>具語法高亮與行號的 cat，也能當閱讀器使用。</p>
+          <p>cat with syntax highlighting and line numbers, and a decent reader in its own right.</p>
           <button class="run">bat script.sh</button></div>
         <div class="card"><span class="cmd">fd</span><span class="nm">fd</span>
-          <p>快速好記的 find 替代品，預設忽略 .gitignore 的內容。</p>
+          <p>Fast, ergonomic find replacement that respects .gitignore by default.</p>
           <button class="run">fd --extension py</button></div>
         <div class="card"><span class="cmd">rg</span><span class="nm">ripgrep</span>
-          <p>極快的遞迴文字搜尋，適合在大型專案找字串。</p>
+          <p>Extremely fast recursive text search across large repositories.</p>
           <button class="run">rg "TODO" --type py</button></div>
         <div class="card"><span class="cmd">sd</span><span class="nm">sd</span>
-          <p>直覺的文字取代工具，語法比 sed -i 單純。</p>
+          <p>Find and replace with syntax that is much easier to remember than sed -i.</p>
           <button class="run">sd 'old_name' 'new_name' src/*.py</button></div>
         <div class="card"><span class="cmd">fzf</span><span class="nm">fzf</span>
-          <p>模糊搜尋器，可過濾任何清單；已設定 Ctrl-R 搜歷史、Ctrl-T 選檔案。</p>
+          <p>Fuzzy finder for any list. Ctrl-R searches shell history and Ctrl-T picks files, both wired up for you.</p>
           <button class="run">nvim $(fzf)</button></div>
         <div class="card"><span class="cmd">tree</span><span class="nm">tree</span>
-          <p>以縮排樹狀顯示目錄結構。</p>
+          <p>Print a directory hierarchy as an indented tree.</p>
           <button class="run">tree -L 2</button></div>
       </div>
     </div>
 
     <div class="group" style="--c:#ff9f68">
-      <h3>磁碟與空間</h3>
+      <h3>Disk and space</h3>
       <div class="cards">
         <div class="card"><span class="cmd">dust</span><span class="nm">dust</span>
-          <p>視覺化的 du，直接指出佔用空間最多的目錄。</p>
+          <p>Visual du that points straight at the directories eating your disk.</p>
           <button class="run">dust -d 2</button></div>
         <div class="card"><span class="cmd">duf</span><span class="nm">duf</span>
-          <p>易讀的 df，以表格與使用率長條顯示已掛載檔案系統。</p>
+          <p>Readable df with a table of mounted filesystems and usage bars.</p>
           <button class="run">duf</button></div>
         <div class="card"><span class="cmd">ncdu</span><span class="nm">ncdu</span>
-          <p>互動式磁碟用量瀏覽器，可直接在介面中刪除大檔。</p>
+          <p>Interactive disk usage browser that can delete large files in place.</p>
           <button class="run">ncdu /var</button></div>
       </div>
     </div>
 
     <div class="group" style="--c:#7fd4c1">
-      <h3>資料處理與文件</h3>
+      <h3>Data and documents</h3>
       <div class="cards">
         <div class="card"><span class="cmd">jq</span><span class="nm">jq</span>
-          <p>JSON 查詢與轉換的標準工具。</p>
+          <p>The standard command-line JSON processor for querying and reshaping payloads.</p>
           <button class="run">curl -s api/url | jq '.items[].name'</button></div>
         <div class="card"><span class="cmd">yq</span><span class="nm">yq</span>
-          <p>jq 風格的 YAML／JSON／TOML／XML 處理器，適合改 K8s 或 CI 設定檔。</p>
+          <p>jq-style processor for YAML, JSON, TOML, and XML, ideal for Kubernetes and CI config.</p>
           <button class="run">yq '.services.web.image' docker-compose.yml</button></div>
         <div class="card"><span class="cmd">glow</span><span class="nm">glow</span>
-          <p>在終端漂亮地呈現 Markdown 文件。</p>
+          <p>Render Markdown files beautifully in the terminal.</p>
           <button class="run">glow README.md</button></div>
         <div class="card"><span class="cmd">tldr</span><span class="nm">tldr</span>
-          <p>社群維護的精簡指令範例，比 man page 更快找到用法。</p>
+          <p>Community-written practical examples, faster to scan than a man page.</p>
           <button class="run">tldr tar</button></div>
       </div>
     </div>
 
     <div class="group" style="--c:#ff6f8b">
-      <h3>網路與量測</h3>
+      <h3>Network and measurement</h3>
       <div class="cards">
         <div class="card"><span class="cmd">xh</span><span class="nm">xh</span>
-          <p>快速的 HTTP 用戶端，語法接近 HTTPie，適合手動打 API。</p>
+          <p>Fast HTTP client with HTTPie-like syntax for poking at APIs by hand.</p>
           <button class="run">xh GET httpbin.org/get name==value</button></div>
         <div class="card"><span class="cmd">gping</span><span class="nm">gping</span>
-          <p>附即時折線圖的 ping，容易看出延遲抖動。</p>
+          <p>ping with a live latency graph, so jitter is obvious at a glance.</p>
           <button class="run">gping 8.8.8.8 google.com</button></div>
         <div class="card"><span class="cmd">hyperfine</span><span class="nm">hyperfine</span>
-          <p>指令效能量測工具，含暖機與統計數據。</p>
+          <p>Benchmark commands with warmup runs and proper statistics.</p>
           <button class="run">hyperfine 'rg TODO' 'grep -r TODO .'</button></div>
         <div class="card"><span class="cmd">wget</span><span class="nm">wget</span>
-          <p>非互動式下載工具，支援續傳與整站抓取。</p>
+          <p>Non-interactive downloader with resume and whole-site mirroring.</p>
           <button class="run">wget -c https://example.com/file.iso</button></div>
       </div>
     </div>
 
     <div class="group" style="--c:#9aa7c2">
-      <h3>基本系統工具</h3>
+      <h3>System basics</h3>
       <div class="cards">
         <div class="card"><span class="cmd">watch</span><span class="nm">watch</span>
-          <p>固定間隔重複執行指令並觀察輸出變化。</p>
+          <p>Re-run a command on a fixed interval and watch the output change.</p>
           <button class="run">watch -n 2 'kubectl get pods'</button></div>
         <div class="card"><span class="cmd">rsync</span><span class="nm">rsync</span>
-          <p>可靠的增量檔案同步，本機或透過 SSH 都適用。</p>
+          <p>Reliable incremental file sync, locally or over SSH.</p>
           <button class="run">rsync -avz ./src/ user@host:/dst/</button></div>
         <div class="card"><span class="cmd">unzip</span><span class="nm">unzip</span>
-          <p>解開 .zip 壓縮檔。</p>
+          <p>Extract .zip archives.</p>
           <button class="run">unzip archive.zip -d target/</button></div>
       </div>
     </div>
-    <p class="note">macOS 與多數 Linux 已內建 <code>rsync</code>、<code>unzip</code>、<code>watch</code>，摘要會顯示 <span class="pill p-dim">existing</span>，腳本不會重複安裝。</p>
+    <p class="note">macOS and most Linux images already ship <code>rsync</code>, <code>unzip</code>, and <code>watch</code>. The summary marks those as <span class="pill p-dim">existing</span> and nothing is reinstalled.</p>
   </section>
 
   <section id="how">
-    <h2>運作方式</h2>
-    <p class="sub">每項工具都跑同一條流程，安裝來源與驗證結果都會記錄在摘要中。</p>
+    <h2>How it works</h2>
+    <p class="sub">Every tool goes through the same path, and the summary records where each one came from.</p>
     <div class="fn">
-      <div><h4>環境偵測</h4><p>以 <code>uname -s</code> 與 <code>/etc/os-release</code> 判斷系統，決定套件管理器與 shell 設定目標，並把 <code>uname -m</code> 正規化為 x86_64／arm64／armv7／armv6，作為挑選 Release 檔案的依據。</p></div>
-      <div><h4>wants_tool</h4><p><code>--only</code> 與 <code>--skip</code> 的過濾判斷，忽略大小寫與空白，指令名或工具名皆可命中。被過濾的項目標為 SKIPPED，不算失敗。</p></div>
-      <div><h4>setup_homebrew</h4><p>macOS 專用。找不到 brew 時下載官方安裝程式並以非互動模式執行，接著載入對應的 <code>brew shellenv</code>。</p></div>
-      <div><h4>install_package 系列</h4><p>把「套件庫有沒有」「本機裝了沒」「執行安裝」三件事包成統一介面，內部依平台切換 apt-cache／dpkg-query／rpm／brew。<code>try_package_candidates</code> 再依序嘗試不同發行版的套件名，例如 fd-find 與 fd、tlrc 與 tldr。</p></div>
-      <div><h4>github_install</h4><p>套件庫沒有的工具走這裡：查最新 Release、依架構挑檔、驗證 SHA-256、解壓後安裝到 <code>~/.local/bin</code>。挑檔時先比對完整結尾再退回關鍵字包含，避免 <code>linux_arm</code> 誤選到 <code>linux_arm64</code>；壓縮檔內檔名不同的專案（yq）會自動改名，直接發佈單一執行檔的專案（shfmt、direnv）則略過解壓縮；Neovim 保留完整 runtime 目錄並建立連結。設定 <code>GITHUB_TOKEN</code> 可提高 API 額度。</p></div>
-      <div><h4>make_compat_links</h4><p>Ubuntu／Debian 的執行檔叫 fdfind 與 batcat，這裡建立 fd 與 bat 連結，讓各平台用法一致。</p></div>
-      <div><h4>command_works</h4><p>不只看指令存不存在，而是實際執行版本查詢（tmux 用 <code>-V</code>、unzip 用 <code>-v</code>、其餘 <code>--version</code>；entr 沒有版本參數，以存在於 PATH 為準），通過才記為成功。</p></div>
-      <div><h4>安裝摘要</h4><p>結束時列出每項工具的狀態、來源與路徑，並統計成功、略過與失敗數量。</p></div>
+      <div><h4>Environment detection</h4><p>Reads <code>uname -s</code> and <code>/etc/os-release</code> to pick the package manager and shell target, then normalises <code>uname -m</code> into x86_64, arm64, armv7, or armv6 to choose the right release asset later.</p></div>
+      <div><h4>wants_tool</h4><p>Handles <code>--only</code> and <code>--skip</code>. Matching ignores case and spacing and accepts either the command or the tool name. Filtered tools are reported as SKIPPED and never count as failures.</p></div>
+      <div><h4>setup_homebrew</h4><p>macOS only. If brew is missing, it downloads the official installer, runs it non-interactively, and loads the matching <code>brew shellenv</code>.</p></div>
+      <div><h4>The install_package family</h4><p>Wraps "is it in the repo", "is it already installed", and "install it" behind one interface, switching between apt-cache, dpkg-query, rpm, and brew underneath. <code>try_package_candidates</code> then walks the per-distro naming differences, such as fd-find versus fd, or tlrc versus tldr.</p></div>
+      <div><h4>github_install</h4><p>The fallback for tools no repository carries: look up the latest release, match the asset for this architecture, verify the SHA-256 when GitHub publishes one, extract, and install into <code>~/.local/bin</code>. Asset matching prefers an exact suffix before falling back to a substring, so <code>linux_arm</code> never picks <code>linux_arm64</code>. Projects that name the binary differently inside the archive (yq) are renamed on the way in, bare executables (shfmt, direnv) skip extraction entirely, and Neovim keeps its full runtime tree behind a symlink. Set <code>GITHUB_TOKEN</code> to raise the API quota.</p></div>
+      <div><h4>make_compat_links</h4><p>Ubuntu and Debian ship these binaries as fdfind and batcat, so the script links them to fd and bat and keeps usage identical everywhere.</p></div>
+      <div><h4>command_works</h4><p>Presence is not enough: each tool has to answer a version query (<code>-V</code> for tmux, <code>-v</code> for unzip, <code>--version</code> for the rest; entr has no version flag, so presence on PATH is the check) before it is recorded as successful.</p></div>
+      <div><h4>Installation summary</h4><p>Prints the status, source, and path for every tool, plus counts for successful, skipped, and failed.</p></div>
     </div>
   </section>
 
   <section id="shell">
-    <h2>Shell 設定</h2>
-    <p class="sub">寫入前一律做完整字串比對，重複執行不會產生重複行。</p>
+    <h2>Shell setup</h2>
+    <p class="sub">Every line is matched in full before it is written, so re-running never duplicates configuration.</p>
     <table>
-      <thead><tr><th>設定</th><th>內容</th><th>條件</th></tr></thead>
+      <thead><tr><th>Setting</th><th>Line</th><th>Condition</th></tr></thead>
       <tbody>
-        <tr><td>PATH</td><td><code>export PATH="$HOME/.local/bin:$PATH"</code></td><td>一律寫入</td></tr>
-        <tr><td>Homebrew</td><td><code>eval "$(brew shellenv)"</code>（寫入 <code>~/.zprofile</code>）</td><td>僅 macOS</td></tr>
-        <tr><td>zoxide</td><td><code>eval "$(zoxide init zsh|bash)"</code></td><td>zoxide 安裝成功</td></tr>
-        <tr><td>Starship</td><td><code>eval "$(starship init zsh|bash)"</code></td><td>Starship 安裝成功</td></tr>
-        <tr><td>direnv</td><td><code>eval "$(direnv hook zsh|bash)"</code></td><td>direnv 安裝成功</td></tr>
-        <tr><td>fzf 快捷鍵</td><td><code>eval "$(fzf --zsh|--bash)"</code>，啟用 Ctrl-R、Ctrl-T</td><td>fzf 安裝成功</td></tr>
-        <tr><td>fzf 搜尋來源</td><td><code>FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'</code></td><td>fzf 與 fd 皆可用</td></tr>
-        <tr><td>別名區塊</td><td>ls／ll／lt／cat／du／df／top</td><td>指定 <code>--with-aliases</code></td></tr>
+        <tr><td>PATH</td><td><code>export PATH="$HOME/.local/bin:$PATH"</code></td><td>always</td></tr>
+        <tr><td>Homebrew</td><td><code>eval "$(brew shellenv)"</code> in <code>~/.zprofile</code></td><td>macOS only</td></tr>
+        <tr><td>zoxide</td><td><code>eval "$(zoxide init zsh|bash)"</code></td><td>zoxide installed</td></tr>
+        <tr><td>Starship</td><td><code>eval "$(starship init zsh|bash)"</code></td><td>Starship installed</td></tr>
+        <tr><td>direnv</td><td><code>eval "$(direnv hook zsh|bash)"</code></td><td>direnv installed</td></tr>
+        <tr><td>fzf key bindings</td><td><code>eval "$(fzf --zsh|--bash)"</code> for Ctrl-R and Ctrl-T</td><td>fzf installed</td></tr>
+        <tr><td>fzf search source</td><td><code>FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'</code></td><td>fzf and fd both available</td></tr>
+        <tr><td>Alias block</td><td>ls, ll, lt, cat, du, df, top</td><td><code>--with-aliases</code></td></tr>
       </tbody>
     </table>
-    <p class="note">fzf 的設定都加了 <code>command -v fzf</code> 判斷與錯誤抑制，日後移除 fzf 或使用舊版本也不會讓 shell 啟動時噴錯。</p>
+    <p class="note">The fzf lines are guarded with <code>command -v fzf</code> and suppress errors, so removing fzf later or running an older build will not break shell startup.</p>
   </section>
 
   <section id="status">
-    <h2>日誌與回傳狀態</h2>
-    <p class="sub">每次執行都會產生與畫面完全相同的日誌：<code>~/nanolander-YYYYMMDD-HHMMSS.log</code>。安裝失敗時，可用工具名稱搜尋對應區段，例如 <code>== Installing yq ==</code>。</p>
+    <h2>Logs and exit codes</h2>
+    <p class="sub">Each run writes a log identical to what you saw on screen: <code>~/nanolander-YYYYMMDD-HHMMSS.log</code>. To chase a failure, search it for the tool's section header, such as <code>== Installing yq ==</code>.</p>
     <table>
-      <thead><tr><th>回傳碼</th><th>意義</th></tr></thead>
+      <thead><tr><th>Code</th><th>Meaning</th></tr></thead>
       <tbody>
-        <tr><td><span class="pill p-ok">0</span></td><td>全部工具安裝並驗證成功（含被過濾略過的項目）</td></tr>
-        <tr><td><span class="pill p-fail">1</span></td><td>環境準備或必要步驟失敗，例如無法辨識系統、套件庫更新失敗</td></tr>
-        <tr><td><span class="pill p-warn">2</span></td><td>部分工具安裝失敗或不可用</td></tr>
-        <tr><td><span class="pill p-info">64</span></td><td>參數錯誤</td></tr>
-        <tr><td><span class="pill p-dim">130</span></td><td>使用者中斷執行</td></tr>
+        <tr><td><span class="pill p-ok">0</span></td><td>Every requested tool installed and verified, filtered ones included</td></tr>
+        <tr><td><span class="pill p-fail">1</span></td><td>Setup failed: unknown platform, missing sudo, or repository metadata failure</td></tr>
+        <tr><td><span class="pill p-warn">2</span></td><td>Some tools failed or are unavailable</td></tr>
+        <tr><td><span class="pill p-info">64</span></td><td>Bad command-line arguments</td></tr>
+        <tr><td><span class="pill p-dim">130</span></td><td>Interrupted by the user</td></tr>
       </tbody>
     </table>
   </section>
 
   <section id="notes">
-    <h2>注意事項</h2>
+    <h2>Good to know</h2>
     <ul class="plain">
-      <li><b>sudo 密碼</b>：Linux 安裝系統套件時可能要求輸入密碼，腳本開頭會先驗證 sudo 權限。</li>
-      <li><b>GitHub API 限制</b>：未登入額度較低，一次安裝多項工具可能出現 403。先 <code>export GITHUB_TOKEN=…</code> 再執行即可。</li>
-      <li><b>Docker 相關工具</b>：lazydocker 與 dive 需要本機有可用的 Docker 才能實際運作，沒有的話用 <code>--skip lazydocker,dive</code>。</li>
-      <li><b>只有套件庫來源的工具</b> — tig、cscope、entr、ctags 沒有官方跨平台執行檔，只能靠發行版套件庫。Amazon Linux 2023 未內建 EPEL，這幾項可能標為 FAILED，可用 <code>--skip tig,cscope,entr</code> 排除。</li>
-      <li><b>Amazon Linux 2</b>：套件庫較舊，多數現代工具會改用 GitHub Release 安裝到 <code>~/.local/bin</code>，屬正常行為。</li>
-      <li><b>armv6 機器</b>：官方 Release 支援有限，沒有對應版本的工具會標為 FAILED，可用 <code>--only</code> 指定確定可用的項目。</li>
-      <li><b>重複執行</b>：可安全重跑，已安裝的顯示 existing，shell 設定也不會重複加入。</li>
+      <li><b>sudo</b> — installing system packages on Linux may prompt for a password; the script validates sudo access up front.</li>
+      <li><b>GitHub API limits</b> — unauthenticated quota is low, so a full run can hit a 403. Export <code>GITHUB_TOKEN</code> before running to avoid it.</li>
+      <li><b>Docker tools</b> — lazydocker and dive need a working Docker environment to be useful; otherwise run with <code>--skip lazydocker,dive</code>.</li>
+      <li><b>Repository-only tools</b> — tig, cscope, entr, and ctags publish no cross-platform binaries, so they depend on the distro repository. Amazon Linux 2023 ships without EPEL, where they may come back as FAILED; drop them with <code>--skip tig,cscope,entr</code>.</li>
+      <li><b>Amazon Linux 2</b> — the repositories are old, so most modern tools arrive from GitHub releases in <code>~/.local/bin</code>. That is expected.</li>
+      <li><b>armv6</b> — official release coverage is thin; tools without a matching build are reported as FAILED, so pair it with <code>--only</code>.</li>
+      <li><b>Re-runs</b> — safe at any time. Installed tools show as existing and shell configuration is never added twice.</li>
     </ul>
   </section>
 
   <section id="changes">
-    <h2>本次更新</h2>
-    <p class="sub">工具從 19 套擴充到 44 套，四種作業系統與各架構的安裝路徑都已補齊並實測，腳本本身也通過 ShellCheck。</p>
+    <h2>What changed</h2>
+    <p class="sub">The toolkit grew from 19 to 44, with install paths verified on all four operating systems and every supported architecture. The script itself now passes ShellCheck.</p>
     <div class="new">
       <span>bottom</span><span>git-delta</span><span>dive</span><span>sd</span><span>tree</span><span>duf</span><span>yq</span>
       <span>glow</span><span>xh</span><span>gping</span><span>hyperfine</span><span>watch</span><span>rsync</span><span>wget</span><span>unzip</span>
       <span>git</span><span>tig</span><span>difftastic</span><span>ctags</span><span>cscope</span><span>shellcheck</span><span>shfmt</span><span>just</span><span>entr</span><span>direnv</span>
     </div>
     <ul class="plain">
-      <li>參數改為迴圈解析，可多個選項並用；新增 <code>--list-tools</code>、<code>--only</code>、<code>--skip</code>、<code>--with-aliases</code>、<code>--configure-git</code>。</li>
-      <li><code>github_install</code> 支援壓縮檔內外檔名不同的專案與直接發佈的單一執行檔，挑檔改為先比對完整結尾。</li>
-      <li>新增 fzf 快捷鍵、搜尋來源與 direnv hook 整合；<code>command_works</code> 補上 unzip 與 entr 的驗證方式。</li>
-      <li>摘要新增 SKIPPED 狀態與略過數量統計，被過濾的工具不影響回傳狀態。</li>
+      <li>Argument parsing is now a loop, so options combine. New: <code>--list-tools</code>, <code>--only</code>, <code>--skip</code>, <code>--with-aliases</code>, <code>--configure-git</code>.</li>
+      <li><code>github_install</code> handles differently named binaries inside archives, bare executables with no archive at all, and prefers exact suffix matches when picking an asset.</li>
+      <li>fzf key bindings, the fzf search source, and the direnv hook are wired into the shell, and <code>command_works</code> now handles unzip and entr correctly.</li>
+      <li>The summary reports SKIPPED separately, and filtered tools no longer affect the exit code.</li>
     </ul>
   </section>
 
-  <footer>nanolander　·　macOS · Ubuntu · Amazon Linux 2 · Amazon Linux 2023</footer>
+  <footer>nanolander &middot; macOS · Ubuntu · Amazon Linux 2 · Amazon Linux 2023</footer>
   </main>
 </div>
 
@@ -584,7 +576,7 @@ document.querySelectorAll('.card .run').forEach(function(btn){
     var text = btn.textContent.trim();
     var done = function(){
       var old = btn.textContent;
-      btn.textContent = '已複製';
+      btn.textContent = 'Copied';
       btn.classList.add('copied');
       setTimeout(function(){ btn.textContent = old; btn.classList.remove('copied'); }, 1200);
     };
@@ -614,7 +606,7 @@ document.querySelectorAll('.card .run').forEach(function(btn){
       var any = g.querySelectorAll('.card:not([style*="none"])').length;
       g.style.display = any ? '' : 'none';
     });
-    count.textContent = t ? (n + ' 套符合') : '44 套工具';
+    count.textContent = t ? (n + ' matching') : '44 tools';
   });
 })();
 

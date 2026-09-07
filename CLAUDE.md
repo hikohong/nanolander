@@ -8,7 +8,7 @@ local or remote.
 
 Owner: Hiko Hong (hikohong@gmail.com)
 Default branch: `main`
-Project site: `docs/` (GitHub Pages, Chinese + English)
+Project site: `docs/` (GitHub Pages, English)
 
 ---
 
@@ -39,21 +39,18 @@ that file as the template rather than a one-off.
 ```
 /
 ├── CLAUDE.md              ← this file (agent memory)
-├── README.md              ← the specification, in Chinese; keep it true
+├── README.md              ← the specification, in English; keep it true
 ├── LICENSE                ← MIT
-├── .claude/
-│   └── settings.json      ← tool permission allowlist for this repo
 ├── bin/
 │   ├── nanolander         ← the main installer (bash 3.2, ~1330 lines)
 │   └── iterm-tune         ← iTerm2 performance tuning, macOS only
 └── docs/
-    ├── index.html         ← project page, Chinese
-    └── index.en.html      ← project page, English
+    └── index.html         ← project page (English; the site is English only)
 ```
 
 `docs/` is served by GitHub Pages from the `/docs` folder.
 
-**README.md and `docs/*.html` are the specification.** The scripts were
+**README.md and `docs/index.html` are the specification.** The scripts were
 reconstructed from them. If you change behaviour, change all three together, or
 the next reconstruction goes wrong the same way it did before.
 
@@ -119,8 +116,8 @@ Three places, in this order:
 3. `github_repo` — `owner/repo`, or omit it if the project ships no
    cross-platform binaries (`tig`, `cscope`, `entr`, `ctags` are repository-only)
 
-Then update the tool count and the tables in `README.md` **and both
-`docs/index*.html`**.
+Then update the tool count and the tables in `README.md` **and
+`docs/index.html`**.
 
 ### Adding a terminal helper
 
