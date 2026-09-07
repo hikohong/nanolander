@@ -54,7 +54,7 @@
 ## 快速開始
 
 ```bash
-git clone https://github.com/USERNAME/nanolander.git
+git clone https://github.com/hikohong/nanolander.git
 cd nanolander
 ./bin/nanolander
 ```
