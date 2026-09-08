@@ -1,0 +1,5 @@
+# lazy.nvim writes its lockfile next to the configuration it loaded. That is
+# the installed copy under ~/.config/nvim, but pointing Neovim straight at
+# share/nvim while testing puts it here instead, and a pinned plugin set is
+# not something this repository ships.
+share/nvim/lazy-lock.json

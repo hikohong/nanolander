@@ -7,8 +7,8 @@ One script that installs the same modern terminal toolchain on macOS, Ubuntu, Am
 | Item | Detail |
 | --- | --- |
 | Main program | `bin/nanolander` |
-| Companion tool | `bin/iterm-tune` (iTerm2 performance tuning, macOS) |
-| Tools installed | 45 |
+| Companion tools | `bin/nvim-land` (Neovim configuration), `bin/iterm-tune` (iTerm2 performance tuning, macOS) |
+| Tools installed | 47 |
 | Install source | Package manager first, official GitHub release when missing |
 | Install location | The package manager's default path, or `~/.local/bin` |
 | Log | `~/nanolander-YYYYMMDD-HHMMSS.log` |
@@ -21,6 +21,7 @@ One script that installs the same modern terminal toolchain on macOS, Ubuntu, Am
 - [Getting started](#getting-started)
 - [Command-line options](#command-line-options)
 - [Tool overview](#tool-overview)
+- [Neovim configuration](#neovim-configuration)
 - [How the script works](#how-the-script-works)
 - [Shell configuration changes](#shell-configuration-changes)
 - [Terminal font](#terminal-font)
@@ -49,7 +50,7 @@ One script that installs the same modern terminal toolchain on macOS, Ubuntu, Am
 | Architecture | Coverage |
 | --- | --- |
 | `x86_64` / `amd64` | All tools |
-| `arm64` / `aarch64` | All tools |
+| `arm64` / `aarch64` | All tools on macOS; on Linux all but Neovide, which upstream does not build for it |
 | `armv7` | Most tools (`dive` has no official armv7 build) |
 | `armv6` | Some tools; the rest are reported as failed and can be skipped |
 
@@ -216,7 +217,8 @@ Each entry comes with its purpose and a one-line command to get started.
 | Tool | Command | What it does, and an example |
 | --- | --- | --- |
 | **universal-ctags** | `ctags` | Build tag indexes so Vim and Neovim can jump straight to a definition.<br>`ctags -R --exclude=.git .` |
-| **cscope** | `cscope` | Cross-reference browser for C and C++ symbols, callers and callees.<br>`cscope -Rbq` |
+| **cscope** | `cscope` | Cross-reference browser for C and C++ symbols, callers and callees. Note that Neovim removed cscope support; see [Neovim configuration](#neovim-configuration).<br>`cscope -Rbq` |
+| **tree-sitter CLI** | `tree-sitter` | Grammar compiler. The Neovim configuration needs it to build parsers for anything beyond the six Neovim ships with.<br>`tree-sitter --version` |
 | **ShellCheck** | `shellcheck` | Static analysis for shell scripts: quoting, portability and the classic footguns.<br>`shellcheck bin/nanolander` |
 | **shfmt** | `shfmt` | Formatter for sh and bash, keeping indentation and style consistent across a repo.<br>`shfmt -i 2 -w script.sh` |
 
@@ -240,6 +242,7 @@ Each entry comes with its purpose and a one-line command to get started.
 | Tool | Command | What it does, and an example |
 | --- | --- | --- |
 | **Neovim** | `nvim` | Modern Vim fork with Lua config and LSP support, installed as the default terminal editor.<br>`nvim file.py` |
+| **Neovide** | `neovide` | GUI Neovim client with smooth cursor animation and ligature support, reading the same configuration as the terminal one. Upstream builds it for macOS and `x86_64` Linux only, so elsewhere it is reported `SKIPPED`, not failed.<br>`neovide` |
 | **tmux** | `tmux` | Terminal multiplexer for persistent sessions and splits, so a dropped SSH connection doesn't kill your work.<br>`tmux new -s dev` |
 | **Starship** | `starship` | Fast cross-shell prompt showing Git state, language versions and run times. Enabled automatically.<br>`starship preset nerd-font-symbols` |
 | **zoxide** | `zoxide` | A `cd` that remembers where you go, so a fragment of a path is enough to jump there.<br>`z proj` (`z` comes from the shell integration) |
@@ -295,6 +298,73 @@ Each entry comes with its purpose and a one-line command to get started.
 
 ---
 
+## Neovim configuration
+
+`bin/nanolander` installs Neovim; `bin/nvim-land` configures it. They are separate steps because a configuration is an opinion, and installing a binary is not.
+
+```bash
+./bin/nvim-land              # report only, changes nothing
+./bin/nvim-land --apply      # back up ~/.config/nvim, then install
+./bin/nvim-land --apply --no-sync   # install the files, fetch plugins later
+./bin/nvim-land --restore    # restore the most recent backup
+```
+
+The files live in `share/nvim` and are copied to `~/.config/nvim`. Only files nanolander ships are written; anything else you keep there is reported and left alone.
+
+### Three layers
+
+| Layer | What it is | Where it comes from |
+| --- | --- | --- |
+| 1 | `~/.vimrc` and `~/.vim`, sourced as they are | your own vim configuration, shared byte for byte with vim |
+| 2 | the places where Neovim is not vim | `init.vim` |
+| 3 | treesitter, LSP and the modern plugin set | `lua/hikovim/`, fetched by lazy.nvim |
+
+Layer 1 is optional: without a `~/.vimrc` the configuration still loads, and falls back to Neovim's `habamax` colourscheme. Sourcing it rather than copying it is the point — vim and Neovim never drift apart, and re-running your vim installer updates both.
+
+### What layer 3 replaces
+
+Each replacement disables its predecessor in Neovim only, by setting the plugin's guard variable before `~/.vimrc` is read. Vim keeps using the old one exactly as before.
+
+| Was, in `~/.vim/plugin` | Now | Why |
+| --- | --- | --- |
+| `airline.vim` | `lualine.nvim` | Same badwolf palette and separators, a fraction of the startup cost |
+| `gitgutter.vim` | `gitsigns.nvim` | Asynchronous, so it does not stall on a large file |
+| `taglist.vim`, `tagbar.vim` | `aerial.nvim` | Outline from the language server or treesitter, with no tags file to regenerate |
+| `NERD_tree.vim` | `oil.nvim` | A directory is an ordinary buffer: `dd` deletes, `p` pastes, `:w` applies |
+| `syntax on` | `nvim-treesitter` | Accurate folds and highlighting from a real parse |
+| `vimirc.vim` | — | An IRC client is not an editor's job |
+
+`DirDiff.vim` and `filter.vim` have no replacement, so they keep loading.
+
+### Keys
+
+Muscle memory wins. Only the mappings whose vim plugin no longer exists are rebound, and they keep their original keys.
+
+| Key | Was | Now |
+| --- | --- | --- |
+| `,tb` | `:TagbarToggle` | `:AerialToggle` |
+| `<C-\>s` | `cs find s` — this symbol | LSP references, else a ripgrep word search |
+| `<C-\>g` | `cs find g` — its definition | LSP definition, else the tags file |
+| `<C-\>c` | `cs find c` — callers | LSP incoming calls |
+| `<C-\>d` | `cs find d` — callees | LSP outgoing calls |
+| `<C-\>t` `<C-\>e` | text and pattern search | ripgrep through fzf-lua |
+| `<C-\>f` `<C-\>i` | this file, files including it | fzf-lua file and grep pickers |
+| `<F5>` | (commented out) `:NERDTreeToggle` | `:Oil` |
+
+Everything else — `,sp`, `,lp`, `,ic`, `,f`, `,F`, `<space>`, `<backspace>`, `<C-h>`, `<C-Z>` — comes straight from `~/.vimrc` and behaves as it always did. New maps only go on keys the vim configuration leaves free: `,gb`, `,gp`, `,ff`, `,fg`, `,fb`, `,fd`, `]c`, `[c`.
+
+### Things worth knowing
+
+- **Neovim removed cscope.** `has('cscope')` is `0`, so `~/.vimrc`'s cscope block never runs there. The `<C-\>` keys above are the replacement; for real cscope, use `vim`.
+- **A language server beats both cscope and ctags**, and nanolander does not install one. `clangd` for C and C++ is the one worth having; `./bin/nvim-land` reports which servers this machine can already run.
+- **Parsers need the tree-sitter CLI and a C compiler.** Neovim ships parsers for `c`, `lua`, `markdown`, `query`, `vim` and `vimdoc`, so C works out of the box; anything else compiles on first start once `tree-sitter` is installed.
+- **Treesitter highlighting does not look pixel-identical to vim**, because it paints with `@capture` groups rather than the ones `hiko_color` was tuned for. Set `TS_HIGHLIGHT = false` at the top of `lua/hikovim/plugins.lua` to keep treesitter for folds only.
+- **`,sp` and `,lp` write `session.nvim` and `shada.nvim`**, not `session.vim` and `viminfo.vim`. Neovim's info file is msgpack shada and vim's is text, so sharing one pair would leave whichever editor wrote last unreadable to the other.
+- **Completion is on demand** (`<C-x><C-o>`), not as you type, matching the reason `~/.vimrc` turned OmniCppComplete's popup off.
+- **A running Neovim keeps its old configuration** until you restart it. That is harmless, so unlike `bin/iterm-tune` this script does not refuse to write while the program is open.
+
+---
+
 ## How the script works
 
 This section describes what each function is responsible for, which should make maintaining or extending the script easier.
@@ -337,6 +407,10 @@ The path taken for tools the repositories do not carry:
 8. Neovim needs its full runtime directory, so it is installed into `~/.local/opt/nvim-github` with a symlink in `~/.local/bin`.
 
 Setting the `GITHUB_TOKEN` environment variable adds an authentication header, which raises the API rate limit.
+
+### `tool_unsupported_here` / `ensure_tool`
+
+The catalog is deliberately the same on all four platforms, with one exception: Neovide is a GUI client and upstream builds it for macOS and `x86_64` Linux only. On a Graviton instance or a Raspberry Pi there is nothing to install, so it is recorded `SKIPPED` with the reason `platform` rather than counted as a failure. `ensure_tool` is the wrapper that makes that decision before choosing the Homebrew or the Linux path.
 
 ### `make_compat_links`
 
@@ -513,6 +587,8 @@ When an install fails, search the log by tool name to find the relevant section,
 - **When an install fails**: look at the `FAILED` rows in the summary first, then the matching section of the log. Everything else that succeeded is unaffected and ready to use.
 - **Re-running**: the script is safe to run repeatedly. Tools already present show as `existing`, and shell configuration is never added twice.
 - **Boxes instead of icons**: the font is installed but your terminal is still set to something else. See [Terminal font](#terminal-font).
+- **Neovide on a server**: Neovide is a GUI client and needs a desktop. On a headless box install it if you like, but there is nothing to display; `--skip neovide` keeps the summary tidy. On Linux it is only built for `x86_64`, and elsewhere it is reported `SKIPPED (platform)`.
+- **Neovim configuration**: installing Neovim does not configure it. Run `./bin/nvim-land` for a report, then `--apply`. See [Neovim configuration](#neovim-configuration).
 - **Changing your mind**: see [Undoing a run](#undoing-a-run). Shell config files are backed up before the first write of every run.
 
 ---
@@ -523,7 +599,12 @@ When an install fails, search the log by tool name to find the relevant section,
 nanolander/
 ├── bin/
 │   ├── nanolander      the main install script
+│   ├── nvim-land       install the Neovim configuration
 │   └── iterm-tune      iTerm2 performance tuning (macOS only)
+├── share/
+│   └── nvim/           the Neovim configuration bin/nvim-land installs
+│       ├── init.vim
+│       └── lua/hikovim/{init,plugins,lsp,keys}.lua
 ├── docs/
 │   └── index.html      the project page
 ├── README.md
@@ -546,7 +627,13 @@ What it covers: GPU rendering is not disabled on battery, rendering favours thro
 
 ## What changed in this release
 
-### New tools (19 → 45)
+### Neovim configuration (new)
+
+`bin/nvim-land` installs `share/nvim` into `~/.config/nvim`: `~/.vimrc` and `~/.vim` are sourced rather than copied, the two places where Neovim differs from vim are patched, and lazy.nvim brings in treesitter, LSP, aerial, gitsigns, lualine, oil and fzf-lua. Reports by default, backs up before writing, and `--restore` puts the previous tree back. See [Neovim configuration](#neovim-configuration).
+
+Two tools joined the catalog for it: `neovide`, the GUI client, and the `tree-sitter` CLI that compiles parsers.
+
+### New tools (19 → 47)
 
 Monitoring and files: `bottom`, `dive`, `sd`, `tree`, `duf`, `yq`, `glow`, `xh`, `gping`, `hyperfine`, `watch`, `rsync`, `wget`, `unzip`
 
@@ -566,3 +653,5 @@ Install paths are now complete for all four operating systems and every CPU arch
 - `command_works` gained the `unzip -v`, `cscope -V` and `entr` verification paths.
 - The script itself passes ShellCheck cleanly.
 - The summary gained the `SKIPPED` status and a skipped count; filtered tools do not affect the exit code.
+- A package that installs cleanly without providing the command no longer ends the search. Homebrew's `tree-sitter` is the library and ships no binary; the next candidate, `tree-sitter-cli`, is now tried, and on Linux the GitHub release fallback is reachable from that case too.
+- A `.zip` release asset pulls `unzip` forward when it is not installed yet, the way the font already did.

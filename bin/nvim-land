@@ -1,0 +1,523 @@
+#!/usr/bin/env bash
+#
+# nvim-land — install the Neovim configuration that goes with nanolander.
+#
+#   ./bin/nvim-land              show what is here and what would change
+#   ./bin/nvim-land --apply      back up ~/.config/nvim, then install
+#   ./bin/nvim-land --restore    restore the most recent backup
+#
+# Showing is the default on purpose: look first, decide, then apply.
+#
+# The configuration itself lives in share/nvim and is layered:
+#
+#   1. ~/.vimrc and ~/.vim if they are there, so vim and Neovim stay in sync
+#   2. the Neovim-only deltas — cscope is gone, shada is not viminfo
+#   3. the modern stack: treesitter, LSP, aerial, gitsigns, lualine, oil,
+#      fzf-lua, fetched by lazy.nvim on first start
+#
+# Only files this script ships are written. Anything else in ~/.config/nvim is
+# reported and left alone.
+#
+# Written for bash 3.2, the version macOS ships.
+
+set -uo pipefail
+
+readonly NVIM_LAND_VERSION="1.0.0"
+readonly BACKUP_DIR="$HOME/.nanolander-backups"
+readonly BACKUP_BASE="config-nvim"
+
+# Neovim 0.11 introduced vim.lsp.config/vim.lsp.enable and
+# vim.lsp.completion, which layer 3 uses. Older versions still load the
+# configuration; they just get less of it.
+readonly NVIM_MIN_MAJOR=0
+readonly NVIM_MIN_MINOR=11
+
+SOURCE_DIR=""
+TARGET_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/nvim"
+DO_SYNC=1
+
+info() { printf '[INFO] %s\n' "$*"; }
+ok()   { printf '[ OK ] %s\n' "$*"; }
+warn() { printf '[WARN] %s\n' "$*"; }
+fail() { printf '[FAIL] %s\n' "$*"; }
+section() { printf '\n== %s ==\n' "$*"; }
+
+usage() {
+  cat <<USAGE
+nvim-land ${NVIM_LAND_VERSION} — the Neovim configuration for nanolander
+
+USAGE:
+  ./bin/nvim-land              Show the current state and what would change.
+  ./bin/nvim-land --apply      Back up ~/.config/nvim, then install.
+  ./bin/nvim-land --apply --no-sync
+                               Install the files but do not fetch plugins.
+  ./bin/nvim-land --restore    Restore the most recent backup.
+  ./bin/nvim-land --help       Show this help.
+
+WHAT IT INSTALLS:
+  init.vim                     sources ~/.vimrc and ~/.vim when they exist,
+                               then patches what Neovim does differently
+  lua/hikovim/plugins.lua      treesitter, LSP, aerial, gitsigns, lualine,
+                               oil, fzf-lua — through lazy.nvim
+  lua/hikovim/lsp.lua          language servers, each enabled only when its
+                               binary is on PATH
+  lua/hikovim/keys.lua         ,tb and the <C-\\> cscope keys, kept on the
+                               same letters they have in vim
+
+WHAT IT DOES NOT DO:
+  It never edits ~/.vimrc or ~/.vim; those belong to hikovim and stay the
+  single copy of the settings vim and Neovim share. It never deletes a file
+  it does not ship. It does not install language servers.
+
+NOTES:
+  A running Neovim keeps its current configuration until you restart it. That
+  is harmless, so unlike bin/iterm-tune this script does not refuse to write
+  while the program is open.
+  Backups live in ${BACKUP_DIR}.
+USAGE
+}
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+resolve_source() {
+  local here
+  here=$(cd -P "$(dirname "$0")" 2>/dev/null && pwd) || return 1
+  SOURCE_DIR="$here/../share/nvim"
+  if [ ! -d "$SOURCE_DIR" ]; then
+    fail "Configuration source not found at $SOURCE_DIR"
+    info "Run this from a nanolander checkout; share/nvim ships with it."
+    return 1
+  fi
+  SOURCE_DIR=$(cd -P "$SOURCE_DIR" && pwd)
+  if [ -z "$(source_files)" ]; then
+    fail "$SOURCE_DIR holds no files."
+    return 1
+  fi
+  return 0
+}
+
+# Relative paths of everything we ship, so nothing has to be listed twice.
+source_files() {
+  (cd "$SOURCE_DIR" 2>/dev/null && find . -type f ! -name '.*' | sed 's|^\./||' | sort)
+}
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# ---------------------------------------------------------------------------
+# Reading the configuration rather than repeating it
+# ---------------------------------------------------------------------------
+
+# lsp_servers — the SERVERS table in lua/hikovim/lsp.lua, "name binary" per
+# line. Parsed rather than copied so the two can never disagree.
+lsp_servers() {
+  local file="$SOURCE_DIR/lua/hikovim/lsp.lua"
+  [ -f "$file" ] || return 0
+  awk '/^local SERVERS = \{/ { inside = 1; next }
+       inside && /^\}/       { inside = 0 }
+       inside                { print }' "$file" \
+    | sed -n "s/^ *\([a-z_][a-z_]*\) *= *'\([^']*\)'.*/\1 \2/p"
+}
+
+# disabled_plugins — the "replaced by" comments on the guard variables in
+# init.vim, for the same reason.
+disabled_plugins() {
+  local file="$SOURCE_DIR/init.vim"
+  [ -f "$file" ] || return 0
+  sed -n 's/^let g:loaded_\([a-z_][a-z_]*\).*" *replaced by \(.*\)$/\1 \2/p' "$file"
+}
+
+# ---------------------------------------------------------------------------
+# State of one file: missing, same or differs
+# ---------------------------------------------------------------------------
+file_state() {
+  local rel="$1"
+  if [ ! -f "$TARGET_DIR/$rel" ]; then
+    printf 'missing'
+  elif cmp -s "$SOURCE_DIR/$rel" "$TARGET_DIR/$rel"; then
+    printf 'same'
+  else
+    printf 'differs'
+  fi
+}
+
+# Files in the target that we do not ship. They are the user's, so they are
+# only ever reported.
+foreign_files() {
+  local rel
+  [ -d "$TARGET_DIR" ] || return 0
+  (cd "$TARGET_DIR" && find . -type f ! -name '.*' | sed 's|^\./||' | sort) \
+    | while IFS= read -r rel; do
+        [ -n "$rel" ] || continue
+        [ -f "$SOURCE_DIR/$rel" ] || printf '%s\n' "$rel"
+      done
+}
+
+pending_count() {
+  local rel n=0
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    [ "$(file_state "$rel")" = "same" ] || n=$((n + 1))
+  done <<FILES
+$(source_files)
+FILES
+  printf '%s' "$n"
+}
+
+nvim_version() {
+  have nvim || return 1
+  nvim --version 2>/dev/null | sed -n '1s/^NVIM v*//p'
+}
+
+nvim_too_old() {
+  local version major minor
+  version=$(nvim_version) || return 1
+  major=$(printf '%s' "$version" | cut -d. -f1)
+  minor=$(printf '%s' "$version" | cut -d. -f2)
+  case "$major$minor" in
+    *[!0-9]*|'') return 1 ;;   # unparseable, so give it the benefit of the doubt
+  esac
+  [ "$major" -gt "$NVIM_MIN_MAJOR" ] && return 1
+  [ "$major" -lt "$NVIM_MIN_MAJOR" ] && return 0
+  [ "$minor" -lt "$NVIM_MIN_MINOR" ]
+}
+
+# ---------------------------------------------------------------------------
+# Report
+# ---------------------------------------------------------------------------
+show_tool() {
+  local label="$1" cmd="$2" note="$3"
+  if have "$cmd"; then
+    printf '  [ok] %-16s %s\n' "$label" "$(command -v "$cmd")"
+  else
+    printf '  [--] %-16s missing — %s\n' "$label" "$note"
+  fi
+}
+
+report_editors() {
+  local version
+  section "Editors"
+  if version=$(nvim_version); then
+    printf '  [ok] %-16s %s\n' "nvim" "$version"
+    if nvim_too_old; then
+      warn "  Neovim ${NVIM_MIN_MAJOR}.${NVIM_MIN_MINOR} or newer is wanted; the LSP layer needs vim.lsp.config."
+    fi
+  else
+    printf '  [--] %-16s missing — ./bin/nanolander --only nvim\n' "nvim"
+  fi
+  show_tool "neovide" neovide "GUI client; ./bin/nanolander --only neovide"
+  show_tool "vim" vim "layer 1 is shared with vim, but Neovim does not need it"
+}
+
+report_layer_one() {
+  section "Layer 1 — hikovim (shared with vim)"
+  if [ -f "$HOME/.vimrc" ]; then
+    printf '  [ok] %-16s %s\n' ".vimrc" "$HOME/.vimrc, sourced by init.vim"
+  else
+    printf '  [--] %-16s %s\n' ".vimrc" \
+      "absent — Neovim falls back to the habamax colorscheme"
+  fi
+  if [ -d "$HOME/.vim" ]; then
+    printf '  [ok] %-16s %s\n' ".vim" "$HOME/.vim, added to the runtimepath"
+  else
+    printf '  [--] %-16s %s\n' ".vim" \
+      "absent — hiko_color and DirDiff will not be there"
+  fi
+  if [ ! -f "$HOME/.vimrc" ] || [ ! -d "$HOME/.vim" ]; then
+    info "  Install them with hikovim's own installer: ./setup.sh --install"
+  fi
+
+  local name replacement listed=0
+  while read -r name replacement; do
+    [ -n "$name" ] || continue
+    if [ "$listed" -eq 0 ]; then
+      info "  Disabled in Neovim only, because layer 3 replaces them:"
+      listed=1
+    fi
+    printf '       %-16s -> %s\n' "$name" "$replacement"
+  done <<PLUGINS
+$(disabled_plugins)
+PLUGINS
+}
+
+report_support() {
+  section "Layer 3 — what the plugins need"
+  show_tool "git" git "lazy.nvim cannot be fetched without it; layer 3 stays off"
+  show_tool "tree-sitter" tree-sitter "no new parsers; Neovim's built-in ones still work"
+  show_tool "cc" cc "tree-sitter needs a C compiler to build a parser"
+  show_tool "rg" rg "the <C-\\> fallback search needs it"
+  show_tool "fzf" fzf "fzf-lua drives the pickers with it"
+  show_tool "ctags" ctags "<C-]> and the tags fallback for <C-\\>g"
+
+  local name binary found=0
+  section "Language servers on this machine"
+  while read -r name binary; do
+    [ -n "$name" ] || continue
+    if have "$binary"; then
+      printf '  [ok] %-16s %s\n' "$name" "$(command -v "$binary")"
+      found=$((found + 1))
+    else
+      printf '  [--] %-16s %s not on PATH\n' "$name" "$binary"
+    fi
+  done <<SERVERS
+$(lsp_servers)
+SERVERS
+  if [ "$found" -eq 0 ]; then
+    info "None found. nanolander does not install language servers, so the"
+    info "<C-\\> keys fall back to ripgrep until you add one (clangd for C/C++)."
+  fi
+}
+
+report_files() {
+  local rel state mark
+  section "Files"
+  info "Source: $SOURCE_DIR"
+  info "Target: $TARGET_DIR"
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    state=$(file_state "$rel")
+    case "$state" in
+      same)    mark="ok" ;;
+      missing) mark="->" ;;
+      *)       mark="->" ;;
+    esac
+    printf '  [%s] %-28s %s\n' "$mark" "$rel" "$state"
+  done <<FILES
+$(source_files)
+FILES
+
+  local foreign listed=0
+  while IFS= read -r foreign; do
+    [ -n "$foreign" ] || continue
+    if [ "$listed" -eq 0 ]; then
+      info "Yours, and left alone:"
+      listed=1
+    fi
+    printf '       %s\n' "$foreign"
+  done <<FOREIGN
+$(foreign_files)
+FOREIGN
+}
+
+report() {
+  report_editors
+  report_layer_one
+  report_support
+  report_files
+}
+
+# ---------------------------------------------------------------------------
+# Apply
+# ---------------------------------------------------------------------------
+
+# backup_path — the first free timestamped name. Two runs in the same second
+# must not land on the same one: the second would overwrite the first and
+# destroy the only copy of the original.
+backup_path() {
+  local dir="$1" base="$2" stamp path n=1
+  stamp=$(date +%Y%m%d-%H%M%S)
+  path="$dir/$base.$stamp"
+  while [ -e "$path" ]; do
+    path="$dir/$base.$stamp-$n"
+    n=$((n + 1))
+  done
+  printf '%s' "$path"
+}
+
+# backup_target — copy the whole of ~/.config/nvim aside before the first
+# write. Nothing to copy is not a failure; failing to copy something is.
+backup_target() {
+  local dest
+  if [ ! -d "$TARGET_DIR" ] || [ -z "$(find "$TARGET_DIR" -type f 2>/dev/null | head -1)" ]; then
+    info "Nothing at $TARGET_DIR to back up."
+    return 0
+  fi
+  if ! mkdir -p "$BACKUP_DIR" 2>/dev/null; then
+    fail "Could not create $BACKUP_DIR; refusing to write."
+    return 1
+  fi
+  dest=$(backup_path "$BACKUP_DIR" "$BACKUP_BASE")
+  if cp -R "$TARGET_DIR" "$dest" 2>/dev/null; then
+    ok "Backed up $TARGET_DIR to $dest"
+    return 0
+  fi
+  fail "Could not back up $TARGET_DIR; refusing to write."
+  return 1
+}
+
+install_files() {
+  local rel dir written=0
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    if [ "$(file_state "$rel")" = "same" ]; then
+      continue
+    fi
+    dir=$(dirname "$TARGET_DIR/$rel")
+    if ! mkdir -p "$dir" 2>/dev/null; then
+      fail "Could not create $dir"
+      return 1
+    fi
+    if cp "$SOURCE_DIR/$rel" "$TARGET_DIR/$rel" 2>/dev/null; then
+      ok "$rel"
+      written=$((written + 1))
+    else
+      fail "Could not write $TARGET_DIR/$rel"
+      return 1
+    fi
+  done <<FILES
+$(source_files)
+FILES
+  info "Wrote $written file(s)."
+  return 0
+}
+
+# sync_plugins — do the first lazy.nvim fetch now rather than leaving it for
+# the next interactive start. Needs the network, so a failure is a warning:
+# the configuration is installed either way and will retry on next start.
+sync_plugins() {
+  section "Fetching plugins"
+  if ! have nvim; then
+    warn "Neovim is not installed, so there is nothing to sync yet."
+    return 0
+  fi
+  if ! have git; then
+    warn "git is missing, so lazy.nvim cannot be fetched. Layer 3 stays off."
+    return 0
+  fi
+  info "Running: nvim --headless \"+Lazy! sync\" +qa"
+  if nvim --headless "+Lazy! sync" +qa >/dev/null 2>&1; then
+    ok "Plugins installed."
+  else
+    warn "The plugin sync did not finish cleanly. Open Neovim and run :Lazy."
+  fi
+  if ! have tree-sitter; then
+    info "No tree-sitter CLI, so only Neovim's built-in parsers (c, lua,"
+    info "markdown, query, vim, vimdoc) are available. Install it with:"
+    info "  ./bin/nanolander --only tree-sitter"
+  fi
+  return 0
+}
+
+apply() {
+  if [ "$(pending_count)" -eq 0 ]; then
+    ok "$TARGET_DIR is already up to date; nothing written, no backup made."
+  else
+    backup_target || return 1
+    section "Installing"
+    install_files || return 1
+  fi
+
+  [ "$DO_SYNC" -eq 1 ] && sync_plugins
+
+  section "Done"
+  if pgrep -x nvim >/dev/null 2>&1; then
+    info "Neovim is running; it keeps the old configuration until you restart it."
+  fi
+  info "Undo with: ./bin/nvim-land --restore"
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# Restore
+# ---------------------------------------------------------------------------
+
+# snapshot_before_restore — keep the current tree too, in a subdirectory so it
+# is never picked up as a restore source. That keeps repeated --restore runs
+# idempotent instead of toggling between two states.
+snapshot_before_restore() {
+  local dest
+  [ -d "$TARGET_DIR" ] || return 0
+  if ! mkdir -p "$BACKUP_DIR/pre-restore" 2>/dev/null; then
+    warn "Could not create $BACKUP_DIR/pre-restore; leaving $TARGET_DIR alone."
+    return 1
+  fi
+  dest=$(backup_path "$BACKUP_DIR/pre-restore" "$BACKUP_BASE")
+  if cp -R "$TARGET_DIR" "$dest" 2>/dev/null; then
+    info "Current $TARGET_DIR saved to $dest"
+    return 0
+  fi
+  warn "Could not save the current $TARGET_DIR; leaving it alone."
+  return 1
+}
+
+restore() {
+  local candidate latest=""
+  section "Restoring the Neovim configuration"
+  if [ ! -d "$BACKUP_DIR" ]; then
+    fail "No backup directory at $BACKUP_DIR"
+    return 1
+  fi
+  # Backups carry a sortable timestamp, so the last glob match is the newest.
+  for candidate in "$BACKUP_DIR/$BACKUP_BASE."*; do
+    [ -d "$candidate" ] && latest="$candidate"
+  done
+  if [ -z "$latest" ]; then
+    fail "No $BACKUP_BASE backup found in $BACKUP_DIR"
+    info "One is written the first time --apply changes something."
+    return 1
+  fi
+
+  snapshot_before_restore || return 1
+
+  # Replace the tree rather than merging into it, or files the backup did not
+  # contain would survive a restore.
+  if [ -d "$TARGET_DIR" ] && ! rm -rf "$TARGET_DIR"; then
+    fail "Could not clear $TARGET_DIR"
+    return 1
+  fi
+  if ! mkdir -p "$(dirname "$TARGET_DIR")" 2>/dev/null; then
+    fail "Could not create $(dirname "$TARGET_DIR")"
+    return 1
+  fi
+  if cp -R "$latest" "$TARGET_DIR"; then
+    ok "Restored $TARGET_DIR from $(basename "$latest")"
+    info "Plugins under ~/.local/share/nvim are left as they are."
+    return 0
+  fi
+  fail "Restore failed."
+  return 1
+}
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+main() {
+  local action="report"
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -h|--help) usage; exit 0 ;;
+      --version) printf 'nvim-land %s\n' "$NVIM_LAND_VERSION"; exit 0 ;;
+      --apply)   action="apply" ;;
+      --restore) action="restore" ;;
+      --no-sync) DO_SYNC=0 ;;
+      *)
+        fail "Unknown option: $1"
+        printf 'Try ./bin/nvim-land --help\n'
+        exit 64 ;;
+    esac
+    shift
+  done
+
+  resolve_source || exit 1
+
+  case "$action" in
+    report)
+      report
+      section "Nothing was changed"
+      if [ "$(pending_count)" -eq 0 ]; then
+        info "$TARGET_DIR already matches share/nvim."
+      else
+        info "Run ./bin/nvim-land --apply to install the files marked ->."
+      fi
+      ;;
+    apply)   apply || exit 1 ;;
+    restore) restore || exit 1 ;;
+  esac
+  exit 0
+}
+
+# Sourcing with NVIM_LAND_LIB=1 loads the functions without running anything.
+if [ "${NVIM_LAND_LIB:-0}" != "1" ]; then
+  main "$@"
+fi
