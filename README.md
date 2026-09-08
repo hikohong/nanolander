@@ -23,6 +23,7 @@ One script that installs the same modern terminal toolchain on macOS, Ubuntu, Am
 - [Tool overview](#tool-overview)
 - [How the script works](#how-the-script-works)
 - [Shell configuration changes](#shell-configuration-changes)
+- [Undoing a run](#undoing-a-run)
 - [Logs and exit codes](#logs-and-exit-codes)
 - [Notes and troubleshooting](#notes-and-troubleshooting)
 - [Project structure](#project-structure)
@@ -164,6 +165,24 @@ merge.conflictStyle = zdiff3
 ```
 
 If either `git` or `delta` is missing, the script prints a warning and skips it rather than writing the configuration.
+
+### `--restore-shell`
+
+Put your shell config file back the way it was, from the most recent backup in `~/.nanolander-backups`. The version being replaced is saved first, under `~/.nanolander-backups/pre-restore/`, so the restore is itself undoable. Running it twice restores the same content rather than toggling.
+
+```bash
+./bin/nanolander --restore-shell
+```
+
+### `--uninstall`
+
+Back the changes out rather than rolling the whole file back: remove only the lines nanolander added, and the tools it recorded under `~/.local`. Anything you wrote yourself stays, including edits you made after installing.
+
+```bash
+./bin/nanolander --uninstall
+```
+
+Packages installed through Homebrew, APT, DNF or YUM are left alone, because other things on the machine may depend on them. The Homebrew line in `~/.zprofile` is also left in place, since removing it takes `brew` off your PATH and it may well predate nanolander; the script says so and leaves the decision to you.
 
 ---
 
@@ -358,6 +377,59 @@ The fzf lines are guarded with a `command -v fzf` check and have their errors su
 
 ---
 
+## Undoing a run
+
+Installing changes how your shell looks and behaves — the prompt in particular, which comes from Starship. Both ways back are built in.
+
+### Backups
+
+The first time a run is about to write to `~/.zshrc`, `~/.bashrc` or `~/.zprofile`, the file is copied to:
+
+```
+~/.nanolander-backups/.zshrc.YYYYMMDD-HHMMSS
+```
+
+A run that changes nothing writes no backup, so re-running does not pile up copies. If the backup cannot be written, the script refuses to modify the file rather than changing it with no way back.
+
+### Rolling the file back
+
+```bash
+./bin/nanolander --restore-shell
+```
+
+Restores the most recent backup of each shell config file. Your current version is kept under `~/.nanolander-backups/pre-restore/` first.
+
+### Removing just what nanolander added
+
+```bash
+./bin/nanolander --uninstall
+```
+
+Removes the managed lines and the fenced alias block from your rc files, and deletes the tools recorded in `~/.local/share/nanolander/installed`. Only paths under `~/.local` are ever deleted; anything else in that list is refused and reported.
+
+### By hand
+
+Every line the script adds is appended whole and never edits an existing one, so removing them by hand is safe. To get only the old prompt back, delete the Starship line:
+
+```bash
+sed -i.bak '/eval "$(starship init /d' ~/.zshrc   # ~/.bashrc on Ubuntu
+exec $SHELL -l
+```
+
+`--configure-git` and `--set-default-shell` are not covered by `--uninstall`, because both change state outside this project:
+
+```bash
+git config --global --unset core.pager
+git config --global --unset interactive.diffFilter
+git config --global --unset delta.navigate
+git config --global --unset delta.line-numbers
+git config --global --unset merge.conflictStyle
+
+chsh -s /bin/bash   # or whichever shell you had before
+```
+
+---
+
 ## Logs and exit codes
 
 ### Logs
@@ -399,6 +471,7 @@ When an install fails, search the log by tool name to find the relevant section,
 - **armv6 machines**: official release coverage is limited, and tools without a matching build are marked `FAILED`. Use `--only` to pick the ones you know work.
 - **When an install fails**: look at the `FAILED` rows in the summary first, then the matching section of the log. Everything else that succeeded is unaffected and ready to use.
 - **Re-running**: the script is safe to run repeatedly. Tools already present show as `existing`, and shell configuration is never added twice.
+- **Changing your mind**: see [Undoing a run](#undoing-a-run). Shell config files are backed up before the first write of every run.
 
 ---
 

@@ -179,7 +179,7 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
         <div class="fact"><b>44</b><span>tools covering monitoring, Git, code navigation, containers, search, data, and network work</span></div>
         <div class="fact"><b>4</b><span>operating systems, each mapped to brew, apt, dnf, or yum and the right shell file</span></div>
         <div class="fact"><b>3</b><span>CPU architectures fully covered: x86_64, arm64, armv7 (armv6 partially)</span></div>
-        <div class="fact"><b>7</b><span>command-line options to install a subset, add aliases, or set the Git pager</span></div>
+        <div class="fact"><b>9</b><span>command-line options to install a subset, add aliases, set the Git pager, or undo the whole run</span></div>
       </div>
     </div>
   </div>
@@ -261,6 +261,16 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
       <div class="opt">
         <kbd>--configure-git</kbd>
         <p>Set git-delta as the global Git pager, so <code>git diff</code>, <code>git log</code>, and <code>git show</code> get syntax highlighting and line numbers, and switch merge conflicts to zdiff3. Skipped with a warning if git or delta is missing.</p>
+      </div>
+      <div class="opt">
+        <kbd>--restore-shell</kbd>
+        <p>Put your shell config file back the way it was. Every run copies <code>~/.zshrc</code>, <code>~/.bashrc</code> and <code>~/.zprofile</code> into <code>~/.nanolander-backups</code> the first time it is about to write to them, and this restores the most recent copy. The version being replaced is kept too, so the restore is itself undoable.</p>
+        <div class="ex">./bin/nanolander --restore-shell</div>
+      </div>
+      <div class="opt">
+        <kbd>--uninstall</kbd>
+        <p>Back the changes out instead of rolling the file back: remove only the lines nanolander added, plus the tools it recorded under <code>~/.local</code>. Anything you wrote yourself is untouched, and packages installed through brew, apt, dnf, or yum are left alone.</p>
+        <div class="ex">./bin/nanolander --uninstall</div>
       </div>
       <div class="opt">
         <kbd>--help</kbd>
