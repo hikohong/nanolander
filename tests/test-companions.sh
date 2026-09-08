@@ -13,12 +13,17 @@ set -uo pipefail
 temp_home; H="$TEST_HOME"
 trap 'rm -rf "$H"' EXIT
 
-# A stub nvim so --with-nvim-config gets past the "is it installed" gate, and
-# a stub git so lazy.nvim looks fetchable.
-STUB="$H/stub"; mkdir -p "$STUB"
-printf '#!/bin/sh\ncase "$1" in --version) echo "NVIM v0.11.0";; *) exit 0;; esac\n' > "$STUB/nvim"
-printf '#!/bin/sh\nexit 0\n' > "$STUB/git"
-chmod +x "$STUB/nvim" "$STUB/git"
+# Package-manager work is not what this suite is about, and on a runner it
+# means network and minutes. This dir goes on PATH for every run below.
+STUB="$H/stub"
+stub_tools "$STUB" git apt-get brew dnf yum sudo
+
+# A stub nvim, kept in its own directory so the second case below can run
+# without it. Putting it in $STUB would leave it on PATH for every run and the
+# "Neovim is missing" branch would never be reached.
+NVIM_STUB="$H/stub-nvim"; mkdir -p "$NVIM_STUB"
+printf '#!/bin/sh\ncase "$1" in --version) echo "NVIM v0.11.0";; *) exit 0;; esac\n' > "$NVIM_STUB/nvim"
+chmod +x "$NVIM_STUB/nvim"
 
 # README tells people to link bin/nanolander onto PATH, so the handoff has to
 # survive $0 being a symlink: a bare dirname would look for nvim-land beside
@@ -26,16 +31,16 @@ chmod +x "$STUB/nvim" "$STUB/git"
 LINK="$H/bin"; mkdir -p "$LINK"
 ln -sf "$REPO_ROOT/bin/nanolander" "$LINK/nanolander"
 
-out=$(PATH="$STUB:$PATH" "$LINK/nanolander" --only tree --with-nvim-config 2>&1)
+out=$(PATH="$NVIM_STUB:$PATH" "$LINK/nanolander" --only git --with-nvim-config 2>&1)
 chk "handoff survives a symlinked \$0" "$(printf '%s' "$out" | grep -c 'bin/nvim-land --apply')" "1"
 chk "helper is not reported missing"   "$(printf '%s' "$out" | grep -c 'Cannot find bin/nvim-land')" "0"
 chk "the config actually lands"        "$(exists "$H/.config/nvim/init.vim")" "y"
 chk "and the run still succeeds"       "$(printf '%s' "$out" | grep -c 'Neovim configuration installed')" "1"
 
 # Without Neovim there is nothing to configure, and that is a warning rather
-# than a failure of the whole run.
+# than a failure of the whole run. NVIM_STUB is deliberately not on PATH here.
 H2=$(mktemp -d)
-out=$(HOME="$H2" "$REPO_ROOT/bin/nanolander" --only tree --with-nvim-config 2>&1)
+out=$(HOME="$H2" "$REPO_ROOT/bin/nanolander" --only git --with-nvim-config 2>&1)
 chk "no nvim is a warning, not a stop" "$(printf '%s' "$out" | grep -c 'Neovim is not installed, so there is no configuration')" "1"
 chk "the tool run still exits 0"       "$?" "0"
 rm -rf "$H2"

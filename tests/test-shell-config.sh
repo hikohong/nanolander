@@ -12,6 +12,8 @@ set -uo pipefail
 . "$(dirname "$0")/lib.sh"
 H=$(mktemp -d); export HOME="$H"
 NL="$REPO_ROOT/bin/nanolander"
+# No package manager work: these assertions are about the rc file.
+stub_tools "$H/stub" apt-get brew dnf yum sudo
 
 # a realistic pre-existing .bashrc the user cares about
 cat > "$H/.bashrc" <<'RC'
@@ -23,7 +25,7 @@ RC
 ORIG=$(cat "$H/.bashrc")
 
 # ---- install ------------------------------------------------------------
-"$NL" --only tree --with-aliases >/dev/null 2>&1
+"$NL" --only git --with-aliases >/dev/null 2>&1
 chk "install exit" "$?" "0"
 chk "backup dir created" "$([ -d "$H/.nanolander-backups" ] && echo y || echo n)" "y"
 chk "one backup of .bashrc" "$(count_files "$H/.nanolander-backups"/.bashrc.*)" "1"
@@ -41,11 +43,11 @@ chk "pre-restore snapshot kept" "$(count_files "$H/.nanolander-backups/pre-resto
 "$NL" --restore-shell >/dev/null 2>&1
 chk "restore is idempotent" "$(cat "$H/.bashrc")" "$ORIG"
 # same-second runs must not clobber each other's backups
-for _ in 1 2 3; do "$NL" --only tree >/dev/null 2>&1; "$NL" --restore-shell >/dev/null 2>&1; done
+for _ in 1 2 3; do "$NL" --only git >/dev/null 2>&1; "$NL" --restore-shell >/dev/null 2>&1; done
 chk "no backup was overwritten" "$(cat "$H/.bashrc")" "$ORIG"
 
 # ---- install again, then uninstall --------------------------------------
-"$NL" --only tree --with-aliases >/dev/null 2>&1
+"$NL" --only git --with-aliases >/dev/null 2>&1
 echo 'export MY_LATER_VAR=1' >> "$H/.bashrc"          # user edits after install
 mkdir -p "$H/.local/share/nanolander" "$H/.local/bin" "$H/.local/opt"
 printf 'fake\n' > "$H/.local/bin/faketool"; chmod +x "$H/.local/bin/faketool"

@@ -37,9 +37,18 @@ Each has an assertion here now. Keep them.
 - **No network.** GitHub releases are local fixtures served over `file://`,
   with `github_api` overridden to return the release JSON. That exercises the
   real download, digest-check, extract and install path.
-- **No root, no package installs.** Anything that writes writes into a
-  throwaway `HOME` from `temp_home`.
-- **Any platform.** The suites run on Linux and macOS alike.
+- **No root, no package installs.** The suites that drive `./bin/nanolander`
+  end to end put no-op `apt-get`, `brew`, `dnf`, `yum` and `sudo` on PATH via
+  `stub_tools`. Without that the run refreshes the package index for real:
+  network, a sudo prompt, and minutes of CI time for a step none of these
+  assertions are about. Everything past that point is the real code.
+- **Nothing outside a throwaway `HOME`.** `temp_home` sets `TEST_HOME` and
+  exports `HOME`; it does not print the path, because `H=$(temp_home)` would
+  run the export in a subshell and leave the suite writing into the real home
+  directory.
+- **Any platform.** The suites run on Linux and macOS alike, and CI runs both.
+- **Fast.** The whole set is about ten seconds. Keep it that way: a suite that
+  takes minutes stops being run.
 
 `NANOLANDER_LIB=1`, `ITERM_TUNE_LIB=1` and `NVIM_LAND_LIB=1` source the
 scripts without running them; that is how the internals are reachable.

@@ -39,6 +39,25 @@ count_files() {
   printf '%s' "$n"
 }
 
+# stub_tools <dir> <name...> — instant no-op executables on PATH.
+#
+# The suites drive the real ./bin/nanolander, which refreshes the package
+# index before it installs anything. That means apt-get update or brew update:
+# network, sudo, and minutes of runner time for a step none of these
+# assertions are about. Stubbing the package managers keeps everything else
+# real while making the claim in tests/README.md — no network, no root — true.
+stub_tools() {
+  local dir="$1" name
+  shift
+  mkdir -p "$dir" || return 1
+  for name in "$@"; do
+    printf '#!/bin/sh\nexit 0\n' > "$dir/$name"
+    chmod +x "$dir/$name"
+  done
+  PATH="$dir:$PATH"
+  export PATH
+}
+
 finish() {
   printf '%s passed, %s failed\n' "$PASSED" "$FAILED"
   [ "$FAILED" -eq 0 ]
