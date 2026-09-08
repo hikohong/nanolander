@@ -10,7 +10,7 @@
 # copy of the original rc file and then restored from it.
 set -uo pipefail
 . "$(dirname "$0")/lib.sh"
-H=$(mktemp -d); export HOME="$H"
+temp_home; H="$TEST_HOME"
 NL="$REPO_ROOT/bin/nanolander"
 # No package manager work: these assertions are about the rc file.
 stub_tools "$H/stub" apt-get brew dnf yum sudo
@@ -75,7 +75,8 @@ before=$(cat "$H/.bashrc")
 chk "second uninstall is a no-op" "$(cat "$H/.bashrc")" "$before"
 
 # ---- restore with no backups at all ------------------------------------
-H2=$(mktemp -d); HOME="$H2" "$NL" --restore-shell >/dev/null 2>&1
+H2=$(mktemp -d)
+HOME="$H2" XDG_DATA_HOME="$H2/.local/share" "$NL" --restore-shell >/dev/null 2>&1
 chk "restore with no backups fails" "$?" "1"
 
 rm -rf "$H" "$H2"

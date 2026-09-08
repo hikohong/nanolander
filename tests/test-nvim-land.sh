@@ -10,7 +10,7 @@
 # is asserted here depends on it.
 set -uo pipefail
 . "$(dirname "$0")/lib.sh"
-H=$(mktemp -d); export HOME="$H"; NL="$REPO_ROOT/bin/nvim-land"
+temp_home; H="$TEST_HOME"; NL="$REPO_ROOT/bin/nvim-land"
 T="$H/.config/nvim"
 
 # An existing configuration of the user's, including a file we do not ship
@@ -54,7 +54,8 @@ chk "same-second cycles lose nothing" "$(cat "$T/init.vim")" "my own init"
 chk "the foreign file is still there" "$(cat "$T/lua/mine/private.lua")" "$ORIG_FOREIGN"
 
 # With no backup at all, restore fails rather than doing something odd.
-H2=$(mktemp -d); HOME="$H2" "$NL" --restore >/dev/null 2>&1
+H2=$(mktemp -d)
+HOME="$H2" XDG_CONFIG_HOME="$H2/.config" "$NL" --restore >/dev/null 2>&1
 chk "restore with no backup fails" "$?" "1"
 
 # Bad arguments.
@@ -71,7 +72,13 @@ printf '#!/bin/sh\nexit 0\n' > "$STUB/git"
 chmod +x "$STUB/nvim" "$STUB/git"
 export NVIM_ARGS="$H/nvim-args"
 
+# This block writes a lockfile into the repository, which is the one thing any
+# suite does outside a throwaway HOME. A trap removes it however the suite
+# ends: leaving it behind makes the next run start from the wrong state, which
+# is exactly how this suite once failed in CI and passed on its own.
 SRC="$REPO_ROOT/share/nvim"
+trap 'rm -f "$SRC/lazy-lock.json"; rm -rf "$H" "$H2"' EXIT
+chk "no stale lockfile to start from" "$(exists "$SRC/lazy-lock.json")" "n"
 : > "$NVIM_ARGS"
 PATH="$STUB:$PATH" "$NL" --apply >/dev/null 2>&1
 chk "no lockfile means sync" "$(grep -c 'Lazy! sync' "$NVIM_ARGS")" "1"
@@ -84,7 +91,7 @@ chk "a lockfile means restore"     "$(grep -c 'Lazy! restore' "$NVIM_ARGS")" "1"
 chk "sync is not used with a lock" "$(grep -c 'Lazy! sync' "$NVIM_ARGS")" "0"
 chk "the lockfile is installed"    "$(exists "$T/lazy-lock.json")" "y"
 chk "report says it is pinned"     "$(PATH="$STUB:$PATH" "$NL" | grep -c 'pinned by lazy-lock.json')" "1"
-rm -f "$SRC/lazy-lock.json"
+rm -f "$SRC/lazy-lock.json"   # also removed by the trap
 chk "report says it is unpinned"   "$(PATH="$STUB:$PATH" "$NL" | grep -c 'unpinned')" "1"
 
 # --freeze refuses to pin a tree that does not match what we ship, or the

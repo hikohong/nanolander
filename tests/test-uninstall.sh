@@ -11,7 +11,7 @@
 # asks for it.
 set -uo pipefail
 . "$(dirname "$0")/lib.sh"
-H=$(mktemp -d); export HOME="$H"; NL="$REPO_ROOT/bin/nanolander"
+temp_home; H="$TEST_HOME"; NL="$REPO_ROOT/bin/nanolander"
 printf 'export EDITOR=vim\n' > "$H/.bashrc"
 mkdir -p "$H/.local/share/nanolander" "$H/.local/share/fonts" "$H/Library/Fonts" "$H/.local/bin"
 

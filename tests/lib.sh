@@ -66,8 +66,18 @@ finish() {
 # A throwaway HOME for suites that write anything. Sets TEST_HOME rather than
 # printing the path: `H=$(temp_home)` would run the export in a subshell and
 # leave the caller pointed at the real home directory.
+#
+# HOME alone is not isolation. bin/nvim-land targets
+# "${XDG_CONFIG_HOME:-$HOME/.config}/nvim" and bin/nanolander puts its manifest
+# and Linux fonts under "${XDG_DATA_HOME:-$HOME/.local/share}", so on any
+# machine that sets those — GitHub's Linux runners do — the suites would write
+# into the real configuration directory and assert against an empty one.
 temp_home() {
   TEST_HOME=$(mktemp -d)
   HOME="$TEST_HOME"
-  export HOME
+  XDG_CONFIG_HOME="$TEST_HOME/.config"
+  XDG_DATA_HOME="$TEST_HOME/.local/share"
+  XDG_STATE_HOME="$TEST_HOME/.local/state"
+  XDG_CACHE_HOME="$TEST_HOME/.cache"
+  export HOME XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME
 }

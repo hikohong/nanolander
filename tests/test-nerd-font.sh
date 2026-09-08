@@ -13,7 +13,7 @@ set -uo pipefail
 . "$(dirname "$0")/lib.sh"
 NANOLANDER_LIB=1 . "$REPO_ROOT/bin/nanolander"
 
-W=$(mktemp -d); export HOME="$W"
+temp_home; W="$TEST_HOME"
 LOCAL_BIN="$W/.local/bin"; LOCAL_OPT="$W/.local/opt"
 STATE_DIR="$W/.local/share/nanolander"; MANIFEST="$STATE_DIR/installed"
 OS_KIND="ubuntu"

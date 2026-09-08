@@ -46,6 +46,18 @@ Each has an assertion here now. Keep them.
   exports `HOME`; it does not print the path, because `H=$(temp_home)` would
   run the export in a subshell and leave the suite writing into the real home
   directory.
+- **`HOME` alone is not isolation.** `temp_home` also points
+  `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME` and `XDG_CACHE_HOME`
+  into it. `bin/nvim-land` targets `${XDG_CONFIG_HOME:-$HOME/.config}/nvim`
+  and `bin/nanolander` puts its manifest and Linux fonts under
+  `${XDG_DATA_HOME:-$HOME/.local/share}`, so on any machine that sets those —
+  GitHub's Linux runners do — the suites wrote into the real configuration
+  directory and asserted against an empty one. They passed locally and failed
+  in CI, which is what CI is for.
+- **One suite writes into the repository.** `test-nvim-land.sh` puts a
+  `lazy-lock.json` in `share/nvim` to check that a lockfile changes `--apply`
+  from `sync` to `restore`. A trap removes it however the suite ends, and it
+  asserts there is no stale one to start from.
 - **Any platform.** The suites run on Linux and macOS alike, and CI runs both.
 - **Fast.** The whole set is about ten seconds. Keep it that way: a suite that
   takes minutes stops being run.
