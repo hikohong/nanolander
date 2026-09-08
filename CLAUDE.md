@@ -17,7 +17,7 @@ Project site: `docs/` (GitHub Pages, English)
 nanolander is not an installer for one machine — it is a **portable terminal
 environment**. The promise is that a fresh box, whether it is the laptop in
 front of you or a bare EC2 instance you just SSH'd into, ends up with the same
-44 tools and the same shell behaviour.
+45 tools and the same shell behaviour.
 
 | Platform | Package manager | Shell config target |
 | --- | --- | --- |
@@ -69,6 +69,13 @@ platform.
 - **No runtime dependencies beyond what a base system has**: `curl`, `tar`,
   `sed`, `awk`, `grep`, `find`. In particular **do not use `jq` to parse the
   GitHub API** — jq is one of the tools nanolander may still be installing.
+- **The Nerd Font never comes from a package manager.** The whole point is
+  that all four platforms get identical font files, so it is always the
+  upstream release. It also installs no command, so `command_works` and
+  `pkg_candidates` both special-case it.
+- **Installing a font cannot select it.** That belongs to the terminal, and
+  for a remote box it belongs to the terminal on the user's laptop. Say so;
+  do not imply the prompt will look right on its own.
 - **Idempotent.** Re-running must not duplicate a shell rc line or reinstall
   what is already there. Shell config is written with whole-line comparison
   (`grep -Fqx`).
@@ -110,6 +117,8 @@ verify → shell config → summary.
 | `find_payload` | exact basename, then prefix — catches `yq_linux_amd64`, `shfmt_v3.10.0_linux_amd64`, `direnv.linux-amd64` |
 | `install_neovim_tree` | Neovim needs its runtime dir: `~/.local/opt/nvim-github` + symlink |
 | `make_compat_links` | Debian/Ubuntu ship `fdfind` / `batcat`; link them to `fd` / `bat` |
+| `ensure_nerd_font` / `install_nerd_font` | the one catalog entry that installs no command; same upstream release on all four platforms, monospaced faces only, `~/Library/Fonts` on macOS and `~/.local/share/fonts` + `fc-cache` elsewhere |
+| `select_named_asset` | picks a release asset by exact filename — the font release is one archive per family, not per architecture |
 | `command_works` | runs a real version query. Exceptions: `tmux -V`, `unzip -v`, `cscope -V`, `entr` by PATH presence |
 | `shell_line` | **the only definition of every managed rc line**; both `configure_shell` and the uninstaller read it, so they cannot drift apart |
 | `configure_shell` | PATH, zoxide, starship, direnv, fzf keys + `FZF_DEFAULT_COMMAND`, optional alias block |
@@ -143,7 +152,9 @@ Follow `bin/iterm-tune`:
   file with its in-memory state on quit.
 - Keep the "what to change" as a `key|type|desired|label` table so it can be
   unit-tested without the target OS.
-- Report the user's own content (triggers, background images); never modify it.
+- Report the user's own content (triggers, background images, the chosen
+  font); never modify it. The font report exists so a user can see why their
+  prompt is full of boxes.
 
 ---
 

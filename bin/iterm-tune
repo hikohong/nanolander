@@ -43,8 +43,10 @@ WHAT IT CHANGES:
   * Ligatures are turned off
   * Scrollback becomes bounded instead of unlimited
 
-  Trigger count and background images are reported only; those are your
-  content, so this script never touches them.
+  Trigger count, background images and the profile font are reported only;
+  those are your content and your choice, so this script never touches them.
+  The font report says whether your profile can actually draw the glyphs the
+  Starship prompt uses.
 
 NOTES:
   iTerm2 must be closed before --apply, otherwise it will write its in-memory
@@ -133,6 +135,16 @@ profile_name() {
   printf '%s' "${name:-profile $1}"
 }
 
+# is_nerd_font — patched builds advertise themselves in the face name, either
+# spelled out or abbreviated: JetBrainsMonoNFM-Regular, HackNF-Regular,
+# MesloLGSNF-Regular, "FiraCode Nerd Font Mono".
+is_nerd_font() {
+  case "$1" in
+    *[Nn]erd[\ ]*[Ff]ont*|*NerdFont*|*NFM-*|*NF-*|*NFP-*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 show_value() {
   local current="$1" desired="$2" label="$3"
   local mark="  "
@@ -174,16 +186,26 @@ GLOBALS
 $PROFILE_SETTINGS
 PROFILES
 
-    # Advisory only — these are the user's content, not performance knobs we
-    # get to decide on.
-    local triggers bg
+    # Advisory only — these are the user's content and preferences, not
+    # performance knobs this script gets to decide on.
+    local triggers bg font
     triggers=$("$PB" -c "Print :New Bookmarks:$i:Triggers" "$PLIST" 2>/dev/null | grep -c 'Dict {')
     bg=$(pb_read "New Bookmarks:$i:Background Image Location")
+    font=$(pb_read "New Bookmarks:$i:Normal Font")
     if [ "${triggers:-0}" -gt 8 ]; then
       warn "  $triggers triggers on this profile; each one runs a regex over every line."
     fi
     if [ -n "$bg" ]; then
       warn "  Background image set ($bg); it costs a composite every frame."
+    fi
+    if [ -n "$font" ]; then
+      if is_nerd_font "$font"; then
+        printf '  [ok] %-34s %s\n' "Nerd Font in use" "$font"
+      else
+        warn "  Font is \"$font\", which carries no Nerd Font glyphs."
+        info "  The Starship prompt and eza icons will show boxes. nanolander"
+        info "  installs the font; pick it under Settings > Profiles > Text > Font."
+      fi
     fi
     i=$((i + 1))
   done
