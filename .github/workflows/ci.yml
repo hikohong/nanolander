@@ -17,6 +17,7 @@ jobs:
   lint:
     name: ShellCheck and syntax
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -48,6 +49,9 @@ jobs:
   test:
     name: Test suites
     runs-on: ${{ matrix.os }}
+    # The whole set takes about ten seconds. Anything approaching this is a
+    # hang, and the default is six hours of a runner sitting on it.
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -63,6 +67,7 @@ jobs:
   consistency:
     name: Docs match the catalog
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 

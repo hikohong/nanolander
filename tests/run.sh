@@ -26,8 +26,12 @@ for suite in "$here"/test-*.sh; do
     *) continue ;;
   esac
 
+  # Print before running, not after: when a suite hangs, this line is the only
+  # thing in the log that says which one.
   printf '\n=== %s ===\n' "$name"
-  output=$(bash "$suite" 2>&1)
+  # Nothing here should ever read stdin. A suite that does would sit waiting
+  # for input forever on a CI runner, where there is no terminal to notice it.
+  output=$(bash "$suite" 2>&1 </dev/null)
   status=$?
   printf '%s\n' "$output"
 
