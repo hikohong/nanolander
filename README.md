@@ -25,6 +25,7 @@ One script that installs the same modern terminal toolchain on macOS, Ubuntu, Am
 - [How the script works](#how-the-script-works)
 - [Shell configuration changes](#shell-configuration-changes)
 - [Terminal font](#terminal-font)
+- [Tests](#tests)
 - [Undoing a run](#undoing-a-run)
 - [Logs and exit codes](#logs-and-exit-codes)
 - [Notes and troubleshooting](#notes-and-troubleshooting)
@@ -167,6 +168,16 @@ merge.conflictStyle = zdiff3
 ```
 
 If either `git` or `delta` is missing, the script prints a warning and skips it rather than writing the configuration.
+
+### `--with-nvim-config`
+
+Install the Neovim configuration too, by handing off to `./bin/nvim-land --apply` once the tools are in. Without it the editor is installed but left unconfigured, which is what the separate helper is for.
+
+```bash
+./bin/nanolander --with-nvim-config
+```
+
+Skipped with a warning when Neovim itself is not installed, and when the helper cannot be found beside this script — it ships in the checkout, so a copy of `bin/nanolander` on its own does not have it.
 
 ### `--restore-shell`
 
@@ -492,6 +503,21 @@ printf '[git_branch]\nsymbol = " "\n' >> ~/.config/starship.toml
 
 ---
 
+## Tests
+
+```bash
+./tests/run.sh              # every suite
+./tests/run.sh nerd-font    # only the suites whose name contains this
+```
+
+They need no network, no root and no particular platform: GitHub releases are local fixtures served over `file://` with the API call stubbed, and anything that writes writes into a throwaway `HOME`. That covers the download, SHA-256 check, extraction and install path for real.
+
+Three suites exist because of bugs that shipped — an `arm64` host handed a `linux_arm` build, the last asset of every release silently dropped, and a same-second backup collision that destroyed the only copy of an rc file. Each has an assertion now.
+
+What they cannot reach: macOS (Homebrew, and all of `iterm-tune`'s writing), Amazon Linux, the live GitHub API, and a real Neovim load. `tests/README.md` says so in full; CI repeats the same list rather than implying otherwise.
+
+---
+
 ## Undoing a run
 
 Installing changes how your shell looks and behaves — the prompt in particular, which comes from Starship. Both ways back are built in.
@@ -604,7 +630,9 @@ nanolander/
 ├── share/
 │   └── nvim/           the Neovim configuration bin/nvim-land installs
 │       ├── init.vim
-│       └── lua/hikovim/{init,plugins,lsp,keys}.lua
+│       ├── lua/hikovim/{init,plugins,lsp,keys}.lua
+│       └── lazy-lock.json   the pinned plugin set, written by --freeze
+├── tests/              the suites, plus run.sh to run them all
 ├── docs/
 │   └── index.html      the project page
 ├── README.md

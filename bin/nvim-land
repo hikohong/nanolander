@@ -52,6 +52,8 @@ USAGE:
   ./bin/nvim-land --apply --no-sync
                                Install the files but do not fetch plugins.
   ./bin/nvim-land --restore    Restore the most recent backup.
+  ./bin/nvim-land --freeze     Resolve every plugin to a commit and write
+                               share/nvim/lazy-lock.json for committing.
   ./bin/nvim-land --help       Show this help.
 
 WHAT IT INSTALLS:
@@ -68,6 +70,13 @@ WHAT IT DOES NOT DO:
   It never edits ~/.vimrc or ~/.vim; those belong to hikovim and stay the
   single copy of the settings vim and Neovim share. It never deletes a file
   it does not ship. It does not install language servers.
+
+PLUGIN VERSIONS:
+  When share/nvim/lazy-lock.json is present, --apply installs exactly the
+  commits it names, so two machines set up weeks apart get the same editor.
+  Without it each install takes whatever is at the head of each project, which
+  matters most for nvim-treesitter: it tracks the main rewrite branch and
+  has no tags to pin to instead.
 
 NOTES:
   A running Neovim keeps its current configuration until you restart it. That
@@ -103,6 +112,15 @@ source_files() {
 }
 
 have() { command -v "$1" >/dev/null 2>&1; }
+
+# lazy.nvim pins every plugin in this file. Shipping it is what makes two
+# machines landed weeks apart get the same editor; without it they get
+# whatever HEAD happened to be. nvim-treesitter in particular tracks `main`,
+# a rewrite branch with no tags to pin to, so the lockfile is the only
+# mechanism available.
+LOCKFILE="lazy-lock.json"
+
+have_lockfile() { [ -f "$SOURCE_DIR/$LOCKFILE" ]; }
 
 # ---------------------------------------------------------------------------
 # Reading the configuration rather than repeating it
@@ -248,6 +266,12 @@ report_support() {
   show_tool "rg" rg "the <C-\\> fallback search needs it"
   show_tool "fzf" fzf "fzf-lua drives the pickers with it"
   show_tool "ctags" ctags "<C-]> and the tags fallback for <C-\\>g"
+  if have_lockfile; then
+    printf '  [ok] %-16s %s\n' "plugin versions" "pinned by $LOCKFILE"
+  else
+    printf '  [--] %-16s %s\n' "plugin versions" \
+      "unpinned — each install takes whatever is at head; ./bin/nvim-land --freeze"
+  fi
 
   local name binary found=0
   section "Language servers on this machine"
@@ -374,7 +398,13 @@ FILES
 # sync_plugins — do the first lazy.nvim fetch now rather than leaving it for
 # the next interactive start. Needs the network, so a failure is a warning:
 # the configuration is installed either way and will retry on next start.
+#
+# With a lockfile shipped this is `restore`, which checks out exactly the
+# pinned commits. `sync` would ignore the lockfile and pull whatever is at the
+# head of each plugin, which is the reproducibility the lockfile exists to
+# prevent losing.
 sync_plugins() {
+  local action="sync" label="latest"
   section "Fetching plugins"
   if ! have nvim; then
     warn "Neovim is not installed, so there is nothing to sync yet."
@@ -384,11 +414,20 @@ sync_plugins() {
     warn "git is missing, so lazy.nvim cannot be fetched. Layer 3 stays off."
     return 0
   fi
-  info "Running: nvim --headless \"+Lazy! sync\" +qa"
-  if nvim --headless "+Lazy! sync" +qa >/dev/null 2>&1; then
+  if have_lockfile; then
+    action="restore"
+    label="the versions pinned in $LOCKFILE"
+  else
+    warn "No $LOCKFILE is shipped, so plugins come from each project's head."
+    info "Two machines set up weeks apart will not get the same versions."
+    info "Pin them with: ./bin/nvim-land --freeze"
+  fi
+  info "Installing $label"
+  info "Running: nvim --headless \"+Lazy! $action\" +qa"
+  if nvim --headless "+Lazy! $action" +qa >/dev/null 2>&1; then
     ok "Plugins installed."
   else
-    warn "The plugin sync did not finish cleanly. Open Neovim and run :Lazy."
+    warn "The plugin fetch did not finish cleanly. Open Neovim and run :Lazy."
   fi
   if ! have tree-sitter; then
     info "No tree-sitter CLI, so only Neovim's built-in parsers (c, lua,"
@@ -415,6 +454,48 @@ apply() {
   fi
   info "Undo with: ./bin/nvim-land --restore"
   return 0
+}
+
+# ---------------------------------------------------------------------------
+# Freeze — maintainer side
+#
+# Resolve every plugin to a commit and copy the resulting lockfile back into
+# share/nvim so it can be committed. This is the only step that needs the
+# network, and the only one that writes into the repository rather than into
+# the user's home.
+# ---------------------------------------------------------------------------
+freeze() {
+  section "Pinning the plugin set"
+  if ! have nvim; then
+    fail "Neovim is not installed; --freeze has nothing to resolve."
+    return 1
+  fi
+  if ! have git; then
+    fail "git is missing, so lazy.nvim cannot fetch anything to pin."
+    return 1
+  fi
+  if [ "$(pending_count)" -ne 0 ]; then
+    fail "$TARGET_DIR does not match share/nvim yet."
+    info "Run ./bin/nvim-land --apply first, so the lockfile pins what we ship."
+    return 1
+  fi
+
+  info "Running: nvim --headless \"+Lazy! sync\" +qa"
+  if ! nvim --headless "+Lazy! sync" +qa >/dev/null 2>&1; then
+    warn "The sync did not finish cleanly; the lockfile may be incomplete."
+  fi
+
+  if [ ! -f "$TARGET_DIR/$LOCKFILE" ]; then
+    fail "lazy.nvim wrote no $TARGET_DIR/$LOCKFILE to copy."
+    return 1
+  fi
+  if cp "$TARGET_DIR/$LOCKFILE" "$SOURCE_DIR/$LOCKFILE"; then
+    ok "Wrote $SOURCE_DIR/$LOCKFILE"
+    info "Commit it. From now on --apply installs exactly these commits."
+    return 0
+  fi
+  fail "Could not write $SOURCE_DIR/$LOCKFILE"
+  return 1
 }
 
 # ---------------------------------------------------------------------------
@@ -490,6 +571,7 @@ main() {
       --version) printf 'nvim-land %s\n' "$NVIM_LAND_VERSION"; exit 0 ;;
       --apply)   action="apply" ;;
       --restore) action="restore" ;;
+      --freeze)  action="freeze" ;;
       --no-sync) DO_SYNC=0 ;;
       *)
         fail "Unknown option: $1"
@@ -513,6 +595,7 @@ main() {
       ;;
     apply)   apply || exit 1 ;;
     restore) restore || exit 1 ;;
+    freeze)  freeze || exit 1 ;;
   esac
   exit 0
 }

@@ -55,7 +55,10 @@ than one-offs.
 ├── share/
 │   └── nvim/              ← the Neovim config, vendored here on purpose
 │       ├── init.vim       ← layers 1 and 2: sources ~/.vimrc, patches Neovim
-│       └── lua/hikovim/   ← layer 3: init, plugins, lsp, keys
+│       ├── lua/hikovim/   ← layer 3: init, plugins, lsp, keys
+│       └── lazy-lock.json ← the pinned plugin set; written by --freeze
+├── tests/                 ← the suites; ./tests/run.sh runs them all
+├── .github/workflows/     ← CI: the only gate on an auto-merged PR
 └── docs/
     └── index.html         ← project page (English; the site is English only)
 ```
@@ -115,6 +118,15 @@ platform.
   byte-for-byte copy of stdout, which is why the output helpers emit plain text
   with no ANSI colour. `grep '== Installing yq =='` on the log must keep working.
 - **Never log a secret.** `GITHUB_TOKEN` may be set; report only that it exists.
+- **The plugin set is pinned by `share/nvim/lazy-lock.json`.** With it present
+  `nvim-land --apply` runs `Lazy! restore`, which checks out those commits;
+  without it `Lazy! sync` takes each project's head and two machines set up
+  weeks apart get different editors. nvim-treesitter tracks the `main` rewrite
+  branch and has no tags, so the lockfile is the only mechanism there is.
+  Regenerate it with `./bin/nvim-land --freeze` and commit the result.
+- **CI is the only gate.** Every change lands through an auto-merged PR, so
+  `.github/workflows/ci.yml` is what stands between a broken script and `main`.
+  Do not add a change without running `./tests/run.sh` first.
 - **Exit codes are API**: `0` all good · `1` environment prep failed · `2` some
   tools failed · `64` bad arguments · `130` interrupted.
 
@@ -146,6 +158,7 @@ verify → shell config → summary.
 | `command_works` | runs a real version query. Exceptions: `tmux -V`, `unzip -v`, `cscope -V`, `entr` by PATH presence |
 | `shell_line` | **the only definition of every managed rc line**; both `configure_shell` and the uninstaller read it, so they cannot drift apart |
 | `configure_shell` | PATH, zoxide, starship, direnv, fzf keys + `FZF_DEFAULT_COMMAND`, optional alias block |
+| `script_dir` / `install_nvim_config` | `--with-nvim-config`; resolves `$0` through symlinks, because README tells people to link `bin/nanolander` onto PATH, then hands off to `bin/nvim-land --apply` |
 | `backup_file_once` / `backup_path` | copies a shell config file to `~/.nanolander-backups` before the first write of a run; `backup_path` never reuses a name, so two runs in the same second cannot clobber each other |
 | `restore_shell` | `--restore-shell`; snapshots the current file into `pre-restore/` — a subdirectory, so it is never a restore source and repeat runs stay idempotent |
 | `uninstall_nanolander` | `--uninstall`; drops the managed lines and alias block, then removes manifest paths, refusing anything outside `~/.local` |
@@ -231,31 +244,31 @@ Follow `bin/iterm-tune`:
 
 ## Testing
 
-Before any push:
-
 ```bash
-shellcheck -S style bin/nanolander bin/iterm-tune   # must be silent
-bash -n bin/nanolander && bash -n bin/iterm-tune
-./bin/nanolander --list-tools                       # tool count sane
-./bin/nanolander --only tree                        # exercises a real install
-./bin/nanolander --only tree                        # run twice: idempotency
+./tests/run.sh              # every suite; this is what CI runs
+./tests/run.sh nerd-font    # only the suites whose name contains this
+shellcheck -S style bin/* tests/*.sh   # must be silent
 ```
 
-The Neovim config is testable the same way, against a throwaway `HOME`:
+`tests/README.md` lists what each suite covers. The three that exist because
+of shipped bugs — the `linux_arm` mismatch, the dropped last asset, the
+same-second backup collision — are the ones to keep when refactoring.
 
-```bash
-H=$(mktemp -d)
-HOME=$H ./bin/nvim-land                      # report; every file 'missing'
-HOME=$H ./bin/nvim-land --apply --no-sync    # installs, no network needed
-HOME=$H ./bin/nvim-land --apply --no-sync    # 'already up to date', no backup
-HOME=$H ./bin/nvim-land --restore            # and again, to prove it is idempotent
-```
+The suites need no network, no root and no particular platform: `github_api`
+is overridden to emit a fixture and asset URLs point at `file://` paths, which
+still exercises download, SHA-256 verification, extraction and install for
+real. Anything that writes uses `temp_home`.
 
-Point Neovim at the repository copy with a *copy*, never a symlink: lazy.nvim
-writes `lazy-lock.json` next to the config it loaded, and a symlink puts it in
-`share/nvim`. It is gitignored, but it should not be there at all.
+`temp_home` sets `TEST_HOME` rather than printing the path. `H=$(temp_home)`
+would run its `export HOME` inside a subshell and leave the suite writing into
+the real home directory — which is how it was first written, and what the
+companions suite caught.
 
-A real load is worth checking after any change to layer 1 or 2:
+`NANOLANDER_LIB=1`, `ITERM_TUNE_LIB=1` and `NVIM_LAND_LIB=1` source each script
+without running it.
+
+A real Neovim load is still worth checking by hand after any change to layer 1
+or 2, because no suite can:
 
 ```bash
 nvim --headless file.c -c 'echo g:colors_name' -c 'silent messages' -c qa
@@ -263,27 +276,15 @@ nvim --headless file.c -c 'echo g:colors_name' -c 'silent messages' -c qa
 
 `hiko_color` must still be the colorscheme and `messages` must be empty.
 
-Backup, restore and uninstall are testable against a throwaway `HOME`:
-
-```bash
-H=$(mktemp -d); HOME=$H ./bin/nanolander --only tree --with-aliases
-HOME=$H ./bin/nanolander --restore-shell   # rc must come back byte for byte
-HOME=$H ./bin/nanolander --uninstall       # user lines must survive
-```
-
-Run install and restore back to back several times: a same-second collision
-used to overwrite the only copy of the original rc file, so that path is worth
-keeping under test.
-
-`github_install` can be exercised offline by overriding `github_api` to emit a
-fixture and pointing asset URLs at `file://` paths — that covers download,
-SHA-256 verification (including a deliberate mismatch), extraction and install
-without touching the network.
+Point Neovim at the repository copy with a *copy*, never a symlink: lazy.nvim
+writes `lazy-lock.json` next to the config it loaded.
 
 **What CI cannot cover:** the macOS path (Homebrew, `ensure_brew_tool`, all of
 `iterm-tune`) and Amazon Linux. Those need a real machine. Neovide on Linux is
 another one — the binary installs fine headless but cannot run without a
-desktop. Say so plainly when reporting instead of implying they were tested.
+desktop. The live GitHub API is a third: asset names are asserted against
+fixtures shaped like the real ones. Say so plainly when reporting instead of
+implying they were tested.
 
 ---
 

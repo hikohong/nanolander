@@ -179,7 +179,7 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
         <div class="fact"><b>47</b><span>tools covering monitoring, Git, code navigation, containers, search, data, and network work</span></div>
         <div class="fact"><b>4</b><span>operating systems, each mapped to brew, apt, dnf, or yum and the right shell file</span></div>
         <div class="fact"><b>3</b><span>CPU architectures fully covered: x86_64, arm64, armv7 (armv6 partially)</span></div>
-        <div class="fact"><b>9</b><span>command-line options to install a subset, add aliases, set the Git pager, or undo the whole run</span></div>
+        <div class="fact"><b>10</b><span>command-line options to install a subset, add aliases, set the Git pager, configure Neovim, or undo the whole run</span></div>
       </div>
     </div>
   </div>
@@ -262,6 +262,11 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
       <div class="opt">
         <kbd>--configure-git</kbd>
         <p>Set git-delta as the global Git pager, so <code>git diff</code>, <code>git log</code>, and <code>git show</code> get syntax highlighting and line numbers, and switch merge conflicts to zdiff3. Skipped with a warning if git or delta is missing.</p>
+      </div>
+      <div class="opt">
+        <kbd>--with-nvim-config</kbd>
+        <p>Install the Neovim configuration too, by handing off to <code>./bin/nvim-land --apply</code> once the tools are in. Without it the editor is installed but left unconfigured. Skipped with a warning when Neovim is missing, or when the helper is not beside this script.</p>
+        <div class="ex">./bin/nanolander --with-nvim-config</div>
       </div>
       <div class="opt">
         <kbd>--restore-shell</kbd>
