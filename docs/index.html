@@ -176,7 +176,7 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
       </div>
 
       <div class="facts">
-        <div class="fact"><b>45</b><span>tools covering monitoring, Git, code navigation, containers, search, data, and network work</span></div>
+        <div class="fact"><b>47</b><span>tools covering monitoring, Git, code navigation, containers, search, data, and network work</span></div>
         <div class="fact"><b>4</b><span>operating systems, each mapped to brew, apt, dnf, or yum and the right shell file</span></div>
         <div class="fact"><b>3</b><span>CPU architectures fully covered: x86_64, arm64, armv7 (armv6 partially)</span></div>
         <div class="fact"><b>9</b><span>command-line options to install a subset, add aliases, set the Git pager, or undo the whole run</span></div>
@@ -190,6 +190,7 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
     <a href="#start">Getting started</a>
     <a href="#options">Options</a>
     <a href="#tools">Tools</a>
+    <a href="#nvim">Neovim config</a>
     <a href="#how">How it works</a>
     <a href="#shell">Shell setup</a>
     <a href="#status">Logs and exit codes</a>
@@ -224,7 +225,7 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
       <thead><tr><th>Architecture</th><th>Coverage</th></tr></thead>
       <tbody>
         <tr><td><code>x86_64 / amd64</code></td><td><span class="pill p-ok">all tools</span></td></tr>
-        <tr><td><code>arm64 / aarch64</code></td><td><span class="pill p-ok">all tools</span></td></tr>
+        <tr><td><code>arm64 / aarch64</code></td><td><span class="pill p-ok">all tools</span> on macOS; on Linux all but Neovide, which upstream does not build for it</td></tr>
         <tr><td><code>armv7</code></td><td><span class="pill p-warn">most tools</span> dive has no official armv7 build</td></tr>
         <tr><td><code>armv6</code></td><td><span class="pill p-dim">some tools</span> pair it with <code>--only</code></td></tr>
       </tbody>
@@ -285,7 +286,7 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
 
     <div class="filter">
       <input id="q" type="search" placeholder="Search tools or purpose…" aria-label="Search tools">
-      <span class="count" id="count">45 tools</span>
+      <span class="count" id="count">47 tools</span>
     </div>
 
     <div class="group" style="--c:#6fb2ff">
@@ -340,6 +341,9 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
         <div class="card"><span class="cmd">cscope</span><span class="nm">cscope</span>
           <p>Cross-reference browser for C and C++ symbols, callers, and callees.</p>
           <button class="run">cscope -Rbq</button></div>
+        <div class="card"><span class="cmd">tree-sitter</span><span class="nm">tree-sitter CLI</span>
+          <p>Grammar compiler. The Neovim configuration needs it to build parsers for anything beyond the six Neovim already ships with.</p>
+          <button class="run">tree-sitter --version</button></div>
         <div class="card"><span class="cmd">shellcheck</span><span class="nm">ShellCheck</span>
           <p>Static analysis for shell scripts: quoting, portability, and the classic footguns.</p>
           <button class="run">shellcheck bin/nanolander</button></div>
@@ -382,6 +386,9 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
         <div class="card"><span class="cmd">nvim</span><span class="nm">Neovim</span>
           <p>Modern Vim fork with Lua config and LSP support, installed as the default terminal editor.</p>
           <button class="run">nvim file.py</button></div>
+        <div class="card"><span class="cmd">neovide</span><span class="nm">Neovide</span>
+          <p>GUI Neovim client with smooth cursor animation and ligatures, reading the same configuration as the terminal one. Built by upstream for macOS and x86_64 Linux only, so elsewhere it is SKIPPED rather than failed.</p>
+          <button class="run">neovide</button></div>
         <div class="card"><span class="cmd">tmux</span><span class="nm">tmux</span>
           <p>Terminal multiplexer for persistent sessions and splits, so a dropped SSH connection doesn't kill your work.</p>
           <button class="run">tmux new -s dev</button></div>
@@ -492,6 +499,66 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
     <p class="note">macOS and most Linux images already ship <code>rsync</code>, <code>unzip</code>, and <code>watch</code>. The summary marks those as <span class="pill p-dim">existing</span> and nothing is reinstalled.</p>
   </section>
 
+  <section id="nvim">
+    <h2>Neovim config</h2>
+    <p class="sub">The main script installs Neovim. <code>bin/nvim-land</code> configures it, as a separate step: a configuration is an opinion, and installing a binary is not.</p>
+<pre class="block"><span class="c"># look first</span>
+<span class="p">$</span> ./bin/nvim-land
+<span class="c"># back up ~/.config/nvim, then install</span>
+<span class="p">$</span> ./bin/nvim-land --apply
+<span class="c"># put the previous tree back</span>
+<span class="p">$</span> ./bin/nvim-land --restore</pre>
+    <p>The files ship in <code>share/nvim</code> and are copied to <code>~/.config/nvim</code>. Only files nanolander ships are written; anything else you keep there is reported and left alone.</p>
+
+    <h3>Three layers</h3>
+    <table>
+      <thead><tr><th>Layer</th><th>What it is</th><th>Where it comes from</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td><code>~/.vimrc</code> and <code>~/.vim</code>, sourced as they are</td><td>your own vim configuration, shared byte for byte with vim</td></tr>
+        <tr><td>2</td><td>the places where Neovim is not vim</td><td><code>init.vim</code></td></tr>
+        <tr><td>3</td><td>treesitter, LSP, and the modern plugin set</td><td><code>lua/hikovim/</code>, fetched by lazy.nvim</td></tr>
+      </tbody>
+    </table>
+    <p class="note">Layer 1 is optional: without a <code>~/.vimrc</code> the configuration still loads and falls back to Neovim's habamax colourscheme. Sourcing rather than copying is the point — vim and Neovim never drift apart.</p>
+
+    <h3>What layer 3 replaces</h3>
+    <p class="sub">Each replacement disables its predecessor in Neovim only, by setting the plugin's guard variable before <code>~/.vimrc</code> is read. Vim keeps using the old one.</p>
+    <table>
+      <thead><tr><th>Was</th><th>Now</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td><code>airline.vim</code></td><td>lualine.nvim</td><td>Same badwolf palette and separators, a fraction of the startup cost</td></tr>
+        <tr><td><code>gitgutter.vim</code></td><td>gitsigns.nvim</td><td>Asynchronous, so it does not stall on a large file</td></tr>
+        <tr><td><code>taglist.vim</code>, <code>tagbar.vim</code></td><td>aerial.nvim</td><td>Outline from the language server or treesitter, no tags file to regenerate</td></tr>
+        <tr><td><code>NERD_tree.vim</code></td><td>oil.nvim</td><td>A directory is an ordinary buffer: dd deletes, p pastes, :w applies</td></tr>
+        <tr><td><code>syntax on</code></td><td>nvim-treesitter</td><td>Accurate folds and highlighting from a real parse</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Keys</h3>
+    <p class="sub">Muscle memory wins. Only the mappings whose vim plugin no longer exists are rebound, and they keep their original keys.</p>
+    <table>
+      <thead><tr><th>Key</th><th>Was</th><th>Now</th></tr></thead>
+      <tbody>
+        <tr><td><code>,tb</code></td><td><code>:TagbarToggle</code></td><td><code>:AerialToggle</code></td></tr>
+        <tr><td><code>&lt;C-\&gt;s</code></td><td><code>cs find s</code> — this symbol</td><td>LSP references, else a ripgrep word search</td></tr>
+        <tr><td><code>&lt;C-\&gt;g</code></td><td><code>cs find g</code> — its definition</td><td>LSP definition, else the tags file</td></tr>
+        <tr><td><code>&lt;C-\&gt;c</code> <code>&lt;C-\&gt;d</code></td><td>callers, callees</td><td>LSP incoming and outgoing calls</td></tr>
+        <tr><td><code>&lt;C-\&gt;t</code> <code>&lt;C-\&gt;e</code> <code>&lt;C-\&gt;f</code> <code>&lt;C-\&gt;i</code></td><td>text, pattern, file, includers</td><td>ripgrep and file pickers through fzf-lua</td></tr>
+        <tr><td><code>&lt;F5&gt;</code></td><td>(commented out) <code>:NERDTreeToggle</code></td><td><code>:Oil</code></td></tr>
+      </tbody>
+    </table>
+    <p class="note">Everything else — <code>,sp</code>, <code>,lp</code>, <code>,ic</code>, <code>,f</code>, <code>&lt;space&gt;</code>, <code>&lt;C-h&gt;</code>, <code>&lt;C-Z&gt;</code> — comes straight from <code>~/.vimrc</code> and behaves as it always did.</p>
+
+    <h3>Worth knowing</h3>
+    <ul class="plain">
+      <li><b>Neovim removed cscope</b> — <code>has('cscope')</code> is 0, so the cscope block in <code>~/.vimrc</code> never runs there. The keys above are the replacement; for real cscope, use vim.</li>
+      <li><b>A language server beats cscope and ctags both</b>, and nanolander does not install one. clangd is the one worth having for C and C++; <code>./bin/nvim-land</code> reports which servers the machine can already run.</li>
+      <li><b>Parsers need the tree-sitter CLI and a C compiler</b> — Neovim ships parsers for c, lua, markdown, query, vim, and vimdoc, so C works out of the box; anything else compiles on first start.</li>
+      <li><b>Treesitter highlighting is not pixel-identical to vim</b>, because it paints with @capture groups rather than the ones a hand-tuned colourscheme targets. One flag at the top of <code>plugins.lua</code> keeps treesitter for folds only.</li>
+      <li><b><code>,sp</code> and <code>,lp</code> write <code>session.nvim</code> and <code>shada.nvim</code></b> — Neovim's info file is msgpack shada and vim's is text, so sharing one pair would leave whichever editor wrote last unreadable to the other.</li>
+    </ul>
+  </section>
+
   <section id="how">
     <h2>How it works</h2>
     <p class="sub">Every tool goes through the same path, and the summary records where each one came from.</p>
@@ -501,6 +568,7 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
       <div><h4>setup_homebrew</h4><p>macOS only. If brew is missing, it downloads the official installer, runs it non-interactively, and loads the matching <code>brew shellenv</code>.</p></div>
       <div><h4>The install_package family</h4><p>Wraps "is it in the repo", "is it already installed", and "install it" behind one interface, switching between apt-cache, dpkg-query, rpm, and brew underneath. <code>try_package_candidates</code> then walks the per-distro naming differences, such as fd-find versus fd, or tlrc versus tldr.</p></div>
       <div><h4>github_install</h4><p>The fallback for tools no repository carries: look up the latest release, match the asset for this architecture, verify the SHA-256 when GitHub publishes one, extract, and install into <code>~/.local/bin</code>. Asset matching prefers an exact suffix before falling back to a substring, so <code>linux_arm</code> never picks <code>linux_arm64</code>. Projects that name the binary differently inside the archive (yq) are renamed on the way in, bare executables (shfmt, direnv) skip extraction entirely, and Neovim keeps its full runtime tree behind a symlink. Set <code>GITHUB_TOKEN</code> to raise the API quota.</p></div>
+      <div><h4>tool_unsupported_here / ensure_tool</h4><p>The catalog is the same on all four platforms with one exception: Neovide is a GUI client and upstream builds it for macOS and x86_64 Linux only. Elsewhere there is nothing to install, so it is recorded as SKIPPED with the reason <code>platform</code> instead of being counted as a failure.</p></div>
       <div><h4>make_compat_links</h4><p>Ubuntu and Debian ship these binaries as fdfind and batcat, so the script links them to fd and bat and keeps usage identical everywhere.</p></div>
       <div><h4>command_works</h4><p>Presence is not enough: each tool has to answer a version query (<code>-V</code> for tmux, <code>-v</code> for unzip, <code>--version</code> for the rest; entr has no version flag, so presence on PATH is the check) before it is recorded as successful.</p></div>
       <div><h4>Installation summary</h4><p>Prints the status, source, and path for every tool, plus counts for successful, skipped, and failed.</p></div>
@@ -550,23 +618,28 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
       <li><b>Repository-only tools</b> — tig, cscope, entr, and ctags publish no cross-platform binaries, so they depend on the distro repository. Amazon Linux 2023 ships without EPEL, where they may come back as FAILED; drop them with <code>--skip tig,cscope,entr</code>.</li>
       <li><b>Amazon Linux 2</b> — the repositories are old, so most modern tools arrive from GitHub releases in <code>~/.local/bin</code>. That is expected.</li>
       <li><b>armv6</b> — official release coverage is thin; tools without a matching build are reported as FAILED, so pair it with <code>--only</code>.</li>
+      <li><b>Neovide on a server</b> — it is a GUI client and needs a desktop, so on a headless box there is nothing to display; <code>--skip neovide</code> keeps the summary tidy.</li>
+      <li><b>Configuring Neovim</b> — installing the binary does not configure it. Run <code>./bin/nvim-land</code> for a report, then <code>--apply</code>.</li>
       <li><b>Re-runs</b> — safe at any time. Installed tools show as existing and shell configuration is never added twice.</li>
     </ul>
   </section>
 
   <section id="changes">
     <h2>What changed</h2>
-    <p class="sub">The toolkit grew from 19 to 45, with install paths verified on all four operating systems and every supported architecture. The script itself now passes ShellCheck.</p>
+    <p class="sub">The toolkit grew from 19 to 47, with install paths verified on all four operating systems and every supported architecture. The script itself now passes ShellCheck.</p>
+    <p><b>New: a Neovim configuration.</b> <code>bin/nvim-land</code> installs <code>share/nvim</code> into <code>~/.config/nvim</code> — your <code>~/.vimrc</code> and <code>~/.vim</code> sourced rather than copied, the two places Neovim differs from vim patched, and lazy.nvim bringing in treesitter, LSP, aerial, gitsigns, lualine, oil, and fzf-lua. It reports by default, backs up before writing, and <code>--restore</code> puts the previous tree back. Two tools joined the catalog for it: neovide and the tree-sitter CLI.</p>
     <div class="new">
       <span>bottom</span><span>git-delta</span><span>dive</span><span>sd</span><span>tree</span><span>duf</span><span>yq</span>
       <span>glow</span><span>xh</span><span>gping</span><span>hyperfine</span><span>watch</span><span>rsync</span><span>wget</span><span>unzip</span>
       <span>git</span><span>tig</span><span>difftastic</span><span>ctags</span><span>cscope</span><span>shellcheck</span><span>shfmt</span><span>just</span><span>entr</span><span>direnv</span>
+      <span>neovide</span><span>tree-sitter</span>
     </div>
     <ul class="plain">
       <li>Argument parsing is now a loop, so options combine. New: <code>--list-tools</code>, <code>--only</code>, <code>--skip</code>, <code>--with-aliases</code>, <code>--configure-git</code>.</li>
       <li><code>github_install</code> handles differently named binaries inside archives, bare executables with no archive at all, and prefers exact suffix matches when picking an asset.</li>
       <li>fzf key bindings, the fzf search source, and the direnv hook are wired into the shell, and <code>command_works</code> now handles unzip and entr correctly.</li>
       <li>The summary reports SKIPPED separately, and filtered tools no longer affect the exit code.</li>
+      <li>A package that installs cleanly without providing the command no longer ends the search — Homebrew's tree-sitter is the library and ships no binary, so tree-sitter-cli is tried next, and on Linux the release fallback stays reachable.</li>
     </ul>
   </section>
 
@@ -619,7 +692,7 @@ document.querySelectorAll('.card .run').forEach(function(btn){
       var any = g.querySelectorAll('.card:not([style*="none"])').length;
       g.style.display = any ? '' : 'none';
     });
-    count.textContent = t ? (n + ' matching') : '45 tools';
+    count.textContent = t ? (n + ' matching') : '47 tools';
   });
 })();
 

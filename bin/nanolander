@@ -67,6 +67,7 @@ gh|GitHub CLI|Git & development flow|Drive GitHub from the terminal: PRs, issues
 git|Git|Git & development flow|Version control itself, installed and version-checked on all four platforms
 ctags|universal-ctags|Code navigation & quality|Tag index so Vim/Neovim can jump straight to a definition
 cscope|cscope|Code navigation & quality|C/C++ cross-reference browser for symbols, callers and callees
+tree-sitter|tree-sitter CLI|Code navigation & quality|Grammar compiler the Neovim treesitter layer needs to build parsers
 shellcheck|ShellCheck|Code navigation & quality|Static analysis for shell scripts
 shfmt|shfmt|Code navigation & quality|Formatter for sh/bash scripts
 just|just|Project workflow|Command runner with recipes simpler than a Makefile
@@ -75,6 +76,7 @@ direnv|direnv|Project workflow|Load and unload environment variables per directo
 lazydocker|lazydocker|Containers|Terminal UI for Docker containers, images, volumes and live logs
 dive|dive|Containers|Inspect a Docker image layer by layer to find wasted space
 nvim|Neovim|Terminal environment|Modern Vim fork with Lua config and LSP, used as the default editor
+neovide|Neovide|Terminal environment|GUI Neovim client; desktop machines only, see --list-tools notes
 tmux|tmux|Terminal environment|Terminal multiplexer; sessions survive an SSH drop
 starship|Starship|Terminal environment|Fast cross-shell prompt with git state, language versions and timing
 zoxide|zoxide|Terminal environment|Frecency-ranked cd replacement
@@ -190,11 +192,17 @@ EXIT CODES:
   64  bad arguments
   130 interrupted
 
+COMPANION SCRIPTS:
+  ./bin/nvim-land    Install the Neovim configuration that goes with these
+                     tools (reports by default, writes with --apply).
+  ./bin/iterm-tune   iTerm2 performance tuning, macOS only.
+
 UNDOING A RUN:
   Shell config files are copied into ~/.nanolander-backups the first time a
   run modifies them, so --restore-shell can put the previous version back.
   --uninstall instead removes only the lines this script added, plus the
   paths it recorded under ~/.local; system packages are left alone.
+  The Neovim configuration is undone with ./bin/nvim-land --restore.
 
 Log: ~/nanolander-YYYYMMDD-HHMMSS.log
 USAGE
@@ -215,6 +223,9 @@ print_tool_catalog() {
 $TOOL_CATALOG
 CATALOG
   printf '\nFilter with --only or --skip using either column, e.g. --only rg,ripgrep\n'
+  printf 'Every tool lands on all four platforms except Neovide, a GUI client that\n'
+  printf 'upstream builds for macOS and x86_64 Linux only; elsewhere it is SKIPPED.\n'
+  printf 'Neovim configuration is a separate step: ./bin/nvim-land\n'
 }
 
 # ---------------------------------------------------------------------------
@@ -389,12 +400,12 @@ detect_environment() {
     OS_KEYWORDS="apple-darwin darwin macos osx"
     case "$ARCH" in
       arm64)  ARCH_KEYWORDS="aarch64-apple-darwin arm64-apple-darwin darwin_arm64 arm64 aarch64" ;;
-      x86_64) ARCH_KEYWORDS="x86_64-apple-darwin darwin_amd64 x86_64 amd64" ;;
+      x86_64) ARCH_KEYWORDS="x86_64-apple-darwin darwin_amd64 x86_64 amd64 x64" ;;
     esac
   else
     OS_KEYWORDS="linux"
     case "$ARCH" in
-      x86_64) ARCH_KEYWORDS="x86_64-unknown-linux-gnu x86_64-unknown-linux-musl linux_amd64 linux-amd64 x86_64 amd64 64bit" ;;
+      x86_64) ARCH_KEYWORDS="x86_64-unknown-linux-gnu x86_64-unknown-linux-musl linux_amd64 linux-amd64 x86_64 amd64 x64 64bit" ;;
       arm64)  ARCH_KEYWORDS="aarch64-unknown-linux-gnu aarch64-unknown-linux-musl linux_arm64 linux-arm64 aarch64 arm64" ;;
       armv7)  ARCH_KEYWORDS="armv7-unknown-linux-gnueabihf arm-unknown-linux-gnueabihf linux_armv7 linux-armv7 armv7l armv7 armhf" ;;
       armv6)  ARCH_KEYWORDS="arm-unknown-linux-gnueabi linux_armv6 linux-armv6 armv6l armv6" ;;
@@ -563,6 +574,9 @@ pkg_candidates() {
     git)        printf 'git' ;;
     ctags)      printf 'universal-ctags ctags exuberant-ctags' ;;
     cscope)     printf 'cscope' ;;
+    # Homebrew's tree-sitter is the library with no binary in it at all; the
+    # command lives in tree-sitter-cli, which is also Debian's name for it.
+    tree-sitter) printf 'tree-sitter-cli tree-sitter' ;;
     shellcheck) printf 'shellcheck ShellCheck' ;;
     shfmt)      printf 'shfmt' ;;
     just)       printf 'just' ;;
@@ -571,6 +585,7 @@ pkg_candidates() {
     lazydocker) printf 'lazydocker' ;;
     dive)       printf 'dive' ;;
     nvim)       printf 'neovim' ;;
+    neovide)    printf 'neovide' ;;
     tmux)       printf 'tmux' ;;
     starship)   printf 'starship' ;;
     zoxide)     printf 'zoxide' ;;
@@ -644,6 +659,8 @@ github_repo() {
     lazydocker) printf 'jesseduffield/lazydocker' ;;
     dive)       printf 'wagoodman/dive' ;;
     nvim)       printf 'neovim/neovim' ;;
+    neovide)    printf 'neovide/neovide' ;;
+    tree-sitter) printf 'tree-sitter/tree-sitter' ;;
     starship)   printf 'starship/starship' ;;
     zoxide)     printf 'ajeetdsouza/zoxide' ;;
     eza)        printf 'eza-community/eza' ;;
@@ -891,6 +908,16 @@ github_install() {
   fi
 
   mkdir -p "$tmp/x"
+  # A .zip asset needs unzip, which sits at the end of the catalog and so may
+  # not be installed yet when an earlier tool ships one. Same reason the font
+  # pulls unzip forward.
+  case "$file" in
+    *.zip)
+      if ! command -v unzip >/dev/null 2>&1; then
+        info "unzip is needed to unpack $(basename "$file"); installing it first."
+        try_package_candidates unzip >/dev/null 2>&1
+      fi ;;
+  esac
   if is_archive "$file"; then
     if ! extract_archive "$file" "$tmp/x"; then
       warn "Could not extract $(basename "$file")."
@@ -1182,7 +1209,10 @@ ensure_linux_tool() {
     return 0
   fi
 
-  if try_package_candidates "$cmd"; then
+  # A package can install cleanly and still not provide the command — brew's
+  # tree-sitter is the library, not the binary — so the release fallback has
+  # to be reachable from that case too.
+  if try_package_candidates "$cmd" && command_works "$cmd"; then
     if [ "$INSTALL_SOURCE" = "package manager" ]; then
       ok "Installed $name from the $PKG_MANAGER repository."
     fi
@@ -1234,10 +1264,15 @@ ensure_brew_tool() {
   fi
 
   for pkg in $(pkg_candidates "$cmd"); do
-    if brew install "$pkg"; then
-      break
+    if ! brew install "$pkg"; then
+      warn "brew install $pkg failed."
+      continue
     fi
-    warn "brew install $pkg failed."
+    # Installing cleanly is not the same as providing the command: brew's
+    # tree-sitter formula is the library and ships no binary at all. Only stop
+    # walking the candidates once the command is actually there.
+    command_works "$cmd" && break
+    warn "$pkg installed but provides no $cmd; trying the next candidate."
   done
 
   if command_works "$cmd"; then
@@ -1252,6 +1287,45 @@ ensure_brew_tool() {
   return 1
 }
 
+# ---------------------------------------------------------------------------
+# tool_unsupported_here — the catalog is deliberately identical on all four
+# platforms, with one exception: Neovide is a GUI client, and upstream ships
+# macOS and x86_64 Linux builds only. On a Graviton instance or a Raspberry Pi
+# there is nothing to install, and calling that a failure would be wrong.
+# ---------------------------------------------------------------------------
+tool_unsupported_here() {
+  case "$1" in
+    neovide)
+      [ "$OS_KIND" = "macos" ] && return 1
+      [ "$ARCH" = "x86_64" ] && return 1
+      return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# ensure_tool — pick the install path for one catalog entry.
+ensure_tool() {
+  local cmd="$1" name="$2"
+
+  if ! wants_tool "$cmd" "$name"; then
+    record_result "$cmd" "SKIPPED" "filter" "-"
+    return 0
+  fi
+
+  if tool_unsupported_here "$cmd"; then
+    section "Installing $name"
+    info "$name has no upstream build for $OS_LABEL on $ARCH; skipping."
+    record_result "$cmd" "SKIPPED" "platform" "-"
+    return 0
+  fi
+
+  if [ "$OS_KIND" = "macos" ]; then
+    ensure_brew_tool "$cmd" "$name"
+  else
+    ensure_linux_tool "$cmd" "$name"
+  fi
+}
+
 install_all_tools() {
   local cmd name category purpose
   while IFS='|' read -r cmd name category purpose; do
@@ -1259,13 +1333,7 @@ install_all_tools() {
     case "$cmd" in
       # The font takes the same route on every platform, by design.
       nerd-font) ensure_nerd_font "$cmd" "$name" ;;
-      *)
-        if [ "$OS_KIND" = "macos" ]; then
-          ensure_brew_tool "$cmd" "$name"
-        else
-          ensure_linux_tool "$cmd" "$name"
-        fi
-        ;;
+      *)         ensure_tool "$cmd" "$name" ;;
     esac
   done <<CATALOG
 $TOOL_CATALOG

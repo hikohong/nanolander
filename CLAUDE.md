@@ -17,7 +17,7 @@ Project site: `docs/` (GitHub Pages, English)
 nanolander is not an installer for one machine — it is a **portable terminal
 environment**. The promise is that a fresh box, whether it is the laptop in
 front of you or a bare EC2 instance you just SSH'd into, ends up with the same
-45 tools and the same shell behaviour.
+47 tools, the same shell behaviour and the same editor.
 
 | Platform | Package manager | Shell config target |
 | --- | --- | --- |
@@ -28,9 +28,16 @@ front of you or a bare EC2 instance you just SSH'd into, ends up with the same
 
 Architectures: `x86_64`, `arm64` (full), `armv7` (most), `armv6` (partial).
 
-Terminal-specific helper scripts live alongside the main script. Today that is
-`bin/iterm-tune` for iTerm2 on macOS; **more terminals are expected**, so treat
-that file as the template rather than a one-off.
+Helper scripts live alongside the main script and all follow the same shape —
+report by default, `--apply` to write, back up first, `--restore` to undo:
+
+| Helper | Scope |
+| --- | --- |
+| `bin/nvim-land` | installs `share/nvim` into `~/.config/nvim` |
+| `bin/iterm-tune` | iTerm2 rendering settings, macOS only |
+
+**More of both are expected**, so treat those two files as the template rather
+than one-offs.
 
 ---
 
@@ -42,8 +49,13 @@ that file as the template rather than a one-off.
 ├── README.md              ← the specification, in English; keep it true
 ├── LICENSE                ← MIT
 ├── bin/
-│   ├── nanolander         ← the main installer (bash 3.2, ~1330 lines)
+│   ├── nanolander         ← the main installer (bash 3.2, ~1900 lines)
+│   ├── nvim-land          ← installs the Neovim config, macOS + Linux
 │   └── iterm-tune         ← iTerm2 performance tuning, macOS only
+├── share/
+│   └── nvim/              ← the Neovim config, vendored here on purpose
+│       ├── init.vim       ← layers 1 and 2: sources ~/.vimrc, patches Neovim
+│       └── lua/hikovim/   ← layer 3: init, plugins, lsp, keys
 └── docs/
     └── index.html         ← project page (English; the site is English only)
 ```
@@ -69,6 +81,17 @@ platform.
 - **No runtime dependencies beyond what a base system has**: `curl`, `tar`,
   `sed`, `awk`, `grep`, `find`. In particular **do not use `jq` to parse the
   GitHub API** — jq is one of the tools nanolander may still be installing.
+- **The nvim config is nanolander's; the vim config is hikovim's.** `share/nvim`
+  *sources* `~/.vimrc` and adds `~/.vim` to the runtimepath — it never copies
+  or edits them. That is why there is only one copy of the settings vim and
+  Neovim share, even though the Neovim half is vendored here. Do not move
+  `_vimrc` content into this repository, and do not put `init.vim` into
+  hikovim: two owners of one file is exactly the drift this avoids.
+- **Neovide is the one tool that is not on every platform.** Upstream builds it
+  for macOS and `x86_64` Linux only, so `tool_unsupported_here` records it
+  `SKIPPED (platform)` elsewhere rather than `FAILED`. Any future entry with
+  the same problem goes through that function, not through a new special case
+  in the install loop.
 - **The Nerd Font never comes from a package manager.** The whole point is
   that all four platforms get identical font files, so it is always the
   upstream release. It also installs no command, so `command_works` and
@@ -116,6 +139,7 @@ verify → shell config → summary.
 | `parse_assets` | flattens the release JSON without jq; pairs each URL with its own digest |
 | `find_payload` | exact basename, then prefix — catches `yq_linux_amd64`, `shfmt_v3.10.0_linux_amd64`, `direnv.linux-amd64` |
 | `install_neovim_tree` | Neovim needs its runtime dir: `~/.local/opt/nvim-github` + symlink |
+| `tool_unsupported_here` / `ensure_tool` | the one platform exception (Neovide) and the wrapper that routes a catalog entry to the brew or Linux path |
 | `make_compat_links` | Debian/Ubuntu ship `fdfind` / `batcat`; link them to `fd` / `bat` |
 | `ensure_nerd_font` / `install_nerd_font` | the one catalog entry that installs no command; same upstream release on all four platforms, monospaced faces only, `~/Library/Fonts` on macOS and `~/.local/share/fonts` + `fc-cache` elsewhere |
 | `select_named_asset` | picks a release asset by exact filename — the font release is one archive per family, not per architecture |
@@ -139,7 +163,54 @@ Three places, in this order:
    cross-platform binaries (`tig`, `cscope`, `entr`, `ctags` are repository-only)
 
 Then update the tool count and the tables in `README.md` **and
-`docs/index.html`**.
+`docs/index.html`** (the site's `47 tools` string appears three times: the hero
+fact, the filter count and the JS reset).
+
+Watch for a package that installs cleanly and still does not provide the
+command — brew's `tree-sitter` is the library, `tree-sitter-cli` is the binary.
+Both `ensure_brew_tool` and `ensure_linux_tool` now verify with
+`command_works` before they stop looking, so put the candidate that carries the
+binary first and let them fall through.
+
+### The Neovim config (`share/nvim` + `bin/nvim-land`)
+
+Three layers, and the layering is the design:
+
+1. `~/.vimrc` and `~/.vim` sourced as they are, so vim and Neovim cannot drift
+2. the Neovim deltas — `has('cscope')` is `0` there, so `~/.vimrc`'s whole
+   cscope block is dead and its `<C-\>` keys have to be rebuilt; and shada is
+   not viminfo, so `,sp` / `,lp` write `session.nvim` / `shada.nvim` instead of
+   clobbering the pair vim wrote
+3. `lua/hikovim/` — lazy.nvim with treesitter, LSP, aerial, gitsigns, lualine,
+   oil, fzf-lua
+
+Rules that are easy to break:
+
+- **Layer 1 must stay optional.** `init.vim` guards both the runtimepath line
+  and the `source`, and falls back to `habamax`, so a box without hikovim still
+  gets a working editor.
+- **Layer 3 must stay optional too.** `bootstrap_lazy` returns false rather
+  than throwing when git is missing or the clone fails; a freshly landed box
+  with no network still opens files.
+- **`performance.rtp.reset = false` in the lazy setup is load-bearing.** lazy
+  wipes the runtimepath by default, which would take `~/.vim` with it and lose
+  `hiko_color`, DirDiff and filter.vim.
+- **Replacing a `~/.vim` plugin means setting its guard variable** in
+  `init.vim` *before* `~/.vimrc` is sourced (`g:loaded_airline`,
+  `g:loaded_gitgutter`, `g:loaded_nerd_tree`, `g:loaded_tagbar`,
+  `g:loaded_taglist = 'no'`). Add a `" replaced by …` comment: `nvim-land`
+  parses those comments for its report, so the list is never written twice.
+- **Keys keep their letters.** `,tb` stays the outline toggle and the `<C-\>`
+  family stays the cscope letters. `~/.vimrc` defines `,tb` with `:map`, so all
+  three of n/x/o have to be replaced or the leftover calls a command that no
+  longer exists.
+- **`nvim-land` never deletes a file it does not ship** and never touches
+  `~/.vimrc` or `~/.vim`. Foreign files in `~/.config/nvim` are reported only.
+- **The server list is parsed, not repeated.** `nvim-land` reads the `SERVERS`
+  table out of `lua/hikovim/lsp.lua`; keep that table's shape parseable.
+- Treesitter parsers need the `tree-sitter` CLI *and* a C compiler. Neovim
+  bundles `c`, `lua`, `markdown`, `query`, `vim`, `vimdoc`, which is why C
+  still works on a bare box.
 
 ### Adding a terminal helper
 
@@ -170,6 +241,28 @@ bash -n bin/nanolander && bash -n bin/iterm-tune
 ./bin/nanolander --only tree                        # run twice: idempotency
 ```
 
+The Neovim config is testable the same way, against a throwaway `HOME`:
+
+```bash
+H=$(mktemp -d)
+HOME=$H ./bin/nvim-land                      # report; every file 'missing'
+HOME=$H ./bin/nvim-land --apply --no-sync    # installs, no network needed
+HOME=$H ./bin/nvim-land --apply --no-sync    # 'already up to date', no backup
+HOME=$H ./bin/nvim-land --restore            # and again, to prove it is idempotent
+```
+
+Point Neovim at the repository copy with a *copy*, never a symlink: lazy.nvim
+writes `lazy-lock.json` next to the config it loaded, and a symlink puts it in
+`share/nvim`. It is gitignored, but it should not be there at all.
+
+A real load is worth checking after any change to layer 1 or 2:
+
+```bash
+nvim --headless file.c -c 'echo g:colors_name' -c 'silent messages' -c qa
+```
+
+`hiko_color` must still be the colorscheme and `messages` must be empty.
+
 Backup, restore and uninstall are testable against a throwaway `HOME`:
 
 ```bash
@@ -188,8 +281,9 @@ SHA-256 verification (including a deliberate mismatch), extraction and install
 without touching the network.
 
 **What CI cannot cover:** the macOS path (Homebrew, `ensure_brew_tool`, all of
-`iterm-tune`) and Amazon Linux. Those need a real machine. Say so plainly when
-reporting instead of implying they were tested.
+`iterm-tune`) and Amazon Linux. Those need a real machine. Neovide on Linux is
+another one — the binary installs fine headless but cannot run without a
+desktop. Say so plainly when reporting instead of implying they were tested.
 
 ---
 
