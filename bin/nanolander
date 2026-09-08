@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# nanolander — 帶著整套裝備降落在任何一台機器上。
+# nanolander — land on any machine with the whole kit.
 #
 # One script that installs the same modern terminal toolchain on macOS,
 # Ubuntu, Amazon Linux 2 and Amazon Linux 2023, then wires up the shell.
@@ -18,7 +18,7 @@ set -uo pipefail
 readonly NANOLANDER_VERSION="1.0.0"
 
 # ---------------------------------------------------------------------------
-# Exit codes (documented in README.md § 回傳狀態)
+# Exit codes (documented in README.md, "Logs and exit codes")
 # ---------------------------------------------------------------------------
 readonly EXIT_OK=0        # everything requested installed and verified
 readonly EXIT_ENV=1       # environment prep failed (unknown OS, repo refresh)
@@ -32,6 +32,15 @@ readonly EXIT_INTERRUPT=130
 LOCAL_BIN="$HOME/.local/bin"
 LOCAL_OPT="$HOME/.local/opt"
 LOG_FILE="$HOME/nanolander-$(date +%Y%m%d-%H%M%S).log"
+
+# Shell config files are copied here before the first write of a run, so a
+# run is always undoable. Shared with bin/iterm-tune.
+BACKUP_DIR="$HOME/.nanolander-backups"
+
+# Everything installed into ~/.local by this script is recorded here, so
+# --uninstall removes exactly what nanolander put there and nothing else.
+STATE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/nanolander"
+MANIFEST="$STATE_DIR/installed"
 
 # ---------------------------------------------------------------------------
 # Tool catalog — the single source of truth for --list-tools and the install
@@ -111,6 +120,7 @@ COUNT_FAILED=0
 COUNT_SKIPPED=0
 
 INSTALL_SOURCE=""
+BACKED_UP=""      # files already backed up in this run
 PICKED_URL=""
 PICKED_DIGEST=""
 
@@ -128,7 +138,7 @@ tool_count() { printf '%s\n' "$TOOL_CATALOG" | grep -c '|'; }
 
 usage() {
   cat <<USAGE
-nanolander ${NANOLANDER_VERSION} — 帶著整套裝備降落在任何一台機器上。
+nanolander ${NANOLANDER_VERSION} — land on any machine with the whole kit.
 
 Installs $(tool_count) modern terminal tools on macOS, Ubuntu, Amazon Linux 2 and
 Amazon Linux 2023, then configures the shell. Distribution packages are used
@@ -146,6 +156,9 @@ OPTIONS:
       --set-default-shell Switch the login shell to zsh (macOS / Amazon Linux).
       --with-aliases      Add the optional alias block to the shell rc file.
       --configure-git     Set git-delta as the global git pager.
+      --restore-shell     Restore the most recent shell config backup.
+      --uninstall         Remove the shell configuration and the tools this
+                          script installed under ~/.local.
 
   Names may be either the command (rg) or the tool name (ripgrep); matching
   ignores case and surrounding whitespace. Options combine freely.
@@ -156,6 +169,8 @@ EXAMPLES:
   ./bin/nanolander --only nvim,tmux,fzf,ripgrep
   ./bin/nanolander --skip lazydocker,dive
   ./bin/nanolander --set-default-shell --with-aliases --configure-git
+  ./bin/nanolander --restore-shell
+  ./bin/nanolander --uninstall
 
 ENVIRONMENT:
   GITHUB_TOKEN  Used for GitHub API calls when set, which raises the rate
@@ -167,6 +182,12 @@ EXIT CODES:
   2   one or more tools failed to install or verify
   64  bad arguments
   130 interrupted
+
+UNDOING A RUN:
+  Shell config files are copied into ~/.nanolander-backups the first time a
+  run modifies them, so --restore-shell can put the previous version back.
+  --uninstall instead removes only the lines this script added, plus the
+  paths it recorded under ~/.local; system packages are left alone.
 
 Log: ~/nanolander-YYYYMMDD-HHMMSS.log
 USAGE
@@ -194,12 +215,16 @@ CATALOG
 # ---------------------------------------------------------------------------
 DO_HELP=0
 DO_LIST=0
+DO_RESTORE_SHELL=0
+DO_UNINSTALL=0
 
 parse_args() {
   while [ $# -gt 0 ]; do
     case "$1" in
       -h|--help) DO_HELP=1 ;;
       --list-tools) DO_LIST=1 ;;
+      --restore-shell) DO_RESTORE_SHELL=1 ;;
+      --uninstall) DO_UNINSTALL=1 ;;
       --only)
         [ $# -ge 2 ] || { fail "--only needs a comma separated list."; return "$EXIT_USAGE"; }
         ONLY_LIST="$2"; shift ;;
@@ -222,6 +247,10 @@ parse_args() {
   done
   if [ -n "$ONLY_LIST" ] && [ -n "$SKIP_LIST" ]; then
     fail "--only and --skip cannot be used together."
+    return "$EXIT_USAGE"
+  fi
+  if [ "$DO_RESTORE_SHELL" -eq 1 ] && [ "$DO_UNINSTALL" -eq 1 ]; then
+    fail "--restore-shell and --uninstall cannot be used together."
     return "$EXIT_USAGE"
   fi
   return 0
@@ -801,6 +830,8 @@ install_neovim_tree() {
   cp -R "$top" "$target" || return 1
   mkdir -p "$LOCAL_BIN"
   ln -sf "$target/bin/nvim" "$LOCAL_BIN/nvim"
+  record_installed "$target"
+  record_installed "$LOCAL_BIN/nvim"
   return 0
 }
 
@@ -888,6 +919,7 @@ github_install() {
   rm -rf "$tmp"
 
   if [ -x "$LOCAL_BIN/$cmd" ]; then
+    record_installed "$LOCAL_BIN/$cmd"
     INSTALL_SOURCE="GitHub release"
     return 0
   fi
@@ -902,10 +934,12 @@ make_compat_links() {
   mkdir -p "$LOCAL_BIN"
   if ! command -v fd >/dev/null 2>&1 && command -v fdfind >/dev/null 2>&1; then
     ln -sf "$(command -v fdfind)" "$LOCAL_BIN/fd"
+    record_installed "$LOCAL_BIN/fd"
     ok "Linked fdfind to $LOCAL_BIN/fd"
   fi
   if ! command -v bat >/dev/null 2>&1 && command -v batcat >/dev/null 2>&1; then
     ln -sf "$(command -v batcat)" "$LOCAL_BIN/bat"
+    record_installed "$LOCAL_BIN/bat"
     ok "Linked batcat to $LOCAL_BIN/bat"
   fi
 }
@@ -1051,6 +1085,56 @@ CATALOG
 # Shell environment. Every line is compared in full before it is written, so
 # re-running the script never duplicates a line.
 # ---------------------------------------------------------------------------
+# backup_file_once — copy a shell config file into ~/.nanolander-backups the
+# first time this run is about to write to it. An empty or missing file has
+# nothing to lose, so it is skipped. Returns non-zero only when there was
+# something to save and saving it failed, which is the one case where the
+# caller must not write.
+# backup_path — the first free timestamped path for a file in a directory.
+# Two runs inside the same second must not land on the same name: the second
+# one would overwrite the first, destroying the only copy of the original.
+backup_path() {
+  local dir="$1" base="$2" stamp path n=1
+  stamp=$(date +%Y%m%d-%H%M%S)
+  path="$dir/$base.$stamp"
+  while [ -e "$path" ]; do
+    path="$dir/$base.$stamp-$n"
+    n=$((n + 1))
+  done
+  printf '%s' "$path"
+}
+
+backup_file_once() {
+  local file="$1" dest
+  case " $BACKED_UP " in
+    *" $file "*) return 0 ;;
+  esac
+  BACKED_UP="$BACKED_UP $file"
+  [ -s "$file" ] || return 0
+  if ! mkdir -p "$BACKUP_DIR" 2>/dev/null; then
+    warn "Could not create $BACKUP_DIR; refusing to modify $file."
+    return 1
+  fi
+  dest=$(backup_path "$BACKUP_DIR" "$(basename "$file")")
+  if cp "$file" "$dest" 2>/dev/null; then
+    ok "Backed up $file to $dest"
+    return 0
+  fi
+  warn "Could not back up $file; refusing to modify it."
+  return 1
+}
+
+# record_installed — remember a path this script created under ~/.local, so
+# --uninstall can remove exactly that and nothing else.
+record_installed() {
+  local path="$1"
+  mkdir -p "$STATE_DIR" 2>/dev/null || return 0
+  [ -f "$MANIFEST" ] || : > "$MANIFEST" 2>/dev/null || return 0
+  grep -Fqx "$path" "$MANIFEST" 2>/dev/null && return 0
+  printf '%s\n' "$path" >> "$MANIFEST" 2>/dev/null || return 0
+  return 0
+}
+
 add_line_once() {
   local file="$1" line="$2"
   mkdir -p "$(dirname "$file")"
@@ -1058,17 +1142,33 @@ add_line_once() {
   if grep -Fqx "$line" "$file" 2>/dev/null; then
     return 1
   fi
+  backup_file_once "$file" || return 1
   printf '%s\n' "$line" >> "$file"
   return 0
+}
+
+# shell_line — every line nanolander may add to a shell rc file, in one
+# place. configure_shell writes them and uninstall_shell_config removes them,
+# so the two can never drift apart.
+shell_line() {
+  # The rc file must receive a literal $HOME, not this process's expansion,
+  # so the PATH line below is deliberately single quoted.
+  # shellcheck disable=SC2016
+  case "$1" in
+    path)     printf '%s' 'export PATH="$HOME/.local/bin:$PATH"' ;;
+    zoxide)   printf 'eval "$(zoxide init %s)"' "$2" ;;
+    starship) printf 'eval "$(starship init %s)"' "$2" ;;
+    direnv)   printf 'eval "$(direnv hook %s)"' "$2" ;;
+    fzf)      printf 'command -v fzf >/dev/null 2>&1 && eval "$(fzf --%s 2>/dev/null)" 2>/dev/null' "$2" ;;
+    fzfcmd)   printf '%s' "export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'" ;;
+  esac
 }
 
 configure_shell() {
   section "Configuring the shell"
   local rc="$SHELL_RC" sh="$SHELL_KIND"
 
-  # The rc file must receive a literal $HOME, not this process's expansion.
-  # shellcheck disable=SC2016
-  if add_line_once "$rc" 'export PATH="$HOME/.local/bin:$PATH"'; then
+  if add_line_once "$rc" "$(shell_line path)"; then
     ok "PATH entry added to $rc"
   else
     info "PATH entry already present in $rc"
@@ -1083,24 +1183,22 @@ configure_shell() {
   fi
 
   if command_works zoxide; then
-    add_line_once "$rc" "eval \"\$(zoxide init $sh)\"" && ok "zoxide init added to $rc"
+    add_line_once "$rc" "$(shell_line zoxide "$sh")" && ok "zoxide init added to $rc"
   fi
   if command_works starship; then
-    add_line_once "$rc" "eval \"\$(starship init $sh)\"" && ok "Starship init added to $rc"
+    add_line_once "$rc" "$(shell_line starship "$sh")" && ok "Starship init added to $rc"
   fi
   if command_works direnv; then
-    add_line_once "$rc" "eval \"\$(direnv hook $sh)\"" && ok "direnv hook added to $rc"
+    add_line_once "$rc" "$(shell_line direnv "$sh")" && ok "direnv hook added to $rc"
   fi
 
   # fzf lines are guarded and error-suppressed so that removing fzf later, or
   # running an older fzf without --zsh/--bash, never breaks shell startup.
   if command_works fzf; then
-    add_line_once "$rc" \
-      "command -v fzf >/dev/null 2>&1 && eval \"\$(fzf --$sh 2>/dev/null)\" 2>/dev/null" \
+    add_line_once "$rc" "$(shell_line fzf "$sh")" \
       && ok "fzf key bindings added to $rc (Ctrl-R, Ctrl-T)"
     if command_works fd; then
-      add_line_once "$rc" \
-        "export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'" \
+      add_line_once "$rc" "$(shell_line fzfcmd)" \
         && ok "FZF_DEFAULT_COMMAND added to $rc"
     fi
   fi
@@ -1118,6 +1216,7 @@ add_alias_block() {
     info "Alias block already present in $rc"
     return 0
   fi
+  backup_file_once "$rc" || return 1
   cat >> "$rc" <<'ALIASES'
 # >>> nanolander aliases >>>
 command -v eza >/dev/null 2>&1 && alias ls='eza --group-directories-first'
@@ -1130,6 +1229,186 @@ command -v btm >/dev/null 2>&1 && alias top='btm'
 # <<< nanolander aliases <<<
 ALIASES
   ok "Alias block added to $rc"
+}
+
+# ---------------------------------------------------------------------------
+# Undoing a run
+# ---------------------------------------------------------------------------
+
+# managed_lines — write every line configure_shell is capable of adding to a
+# pattern file, for both shell flavours, so removal cannot miss one.
+managed_lines() {
+  local sh key
+  for sh in zsh bash; do
+    for key in zoxide starship direnv fzf; do
+      shell_line "$key" "$sh"
+      printf '\n'
+    done
+  done
+  shell_line path
+  printf '\n'
+  shell_line fzfcmd
+  printf '\n'
+}
+
+# remove_managed_lines — drop the fenced alias block and every managed line
+# from one rc file, leaving everything the user wrote untouched.
+remove_managed_lines() {
+  local file="$1" pat tmp before after status
+  [ -f "$file" ] || return 0
+
+  before=$(wc -l < "$file" | tr -d ' ')
+  pat=$(mktemp "${TMPDIR:-/tmp}/nanolander.XXXXXX") || return 1
+  tmp=$(mktemp "${TMPDIR:-/tmp}/nanolander.XXXXXX") || { rm -f "$pat"; return 1; }
+  managed_lines > "$pat"
+
+  awk '
+    /^# >>> nanolander aliases >>>$/ { skip = 1 }
+    skip { if (/^# <<< nanolander aliases <<<$/) { skip = 0 } next }
+    { print }
+  ' "$file" | grep -Fxv -f "$pat" > "$tmp"
+  status=$?
+  # grep -v exits 1 when it selects nothing, which is a legitimate result for
+  # an rc file that contained only our lines. Only 2 and above is an error.
+  if [ "$status" -gt 1 ]; then
+    warn "Could not filter $file; leaving it alone."
+    rm -f "$pat" "$tmp"
+    return 1
+  fi
+
+  after=$(wc -l < "$tmp" | tr -d ' ')
+  if [ "$before" -eq "$after" ]; then
+    info "Nothing of nanolander's in $file"
+    rm -f "$pat" "$tmp"
+    return 0
+  fi
+
+  if ! backup_file_once "$file"; then
+    rm -f "$pat" "$tmp"
+    return 1
+  fi
+  # Copy the contents rather than moving the file, so permissions, ownership
+  # and any symlink at this path survive.
+  if cat "$tmp" > "$file"; then
+    ok "Removed $((before - after)) line(s) from $file"
+  else
+    fail "Could not rewrite $file"
+    rm -f "$pat" "$tmp"
+    return 1
+  fi
+  rm -f "$pat" "$tmp"
+  return 0
+}
+
+# snapshot_before_restore — keep the current file before overwriting it, in a
+# subdirectory so it is never picked up as a restore source. That keeps
+# repeated --restore-shell runs idempotent instead of toggling back and forth.
+snapshot_before_restore() {
+  local file="$1" dest
+  [ -s "$file" ] || return 0
+  if ! mkdir -p "$BACKUP_DIR/pre-restore" 2>/dev/null; then
+    warn "Could not create $BACKUP_DIR/pre-restore; leaving $file alone."
+    return 1
+  fi
+  dest=$(backup_path "$BACKUP_DIR/pre-restore" "$(basename "$file")")
+  if cp "$file" "$dest" 2>/dev/null; then
+    info "Current $file saved to $dest"
+    return 0
+  fi
+  warn "Could not save the current $file; leaving it alone."
+  return 1
+}
+
+restore_shell() {
+  section "Restoring shell configuration"
+  local base candidate latest restored=0
+
+  if [ ! -d "$BACKUP_DIR" ]; then
+    fail "No backups found in $BACKUP_DIR"
+    info "Backups are written the first time a run modifies a shell config file."
+    return 1
+  fi
+
+  for base in .zshrc .bashrc .zprofile; do
+    latest=""
+    # Backups carry a sortable timestamp, so the last glob match is newest.
+    for candidate in "$BACKUP_DIR/$base."*; do
+      [ -f "$candidate" ] && latest="$candidate"
+    done
+    [ -n "$latest" ] || continue
+    # Save the current state too, so a restore is itself undoable.
+    snapshot_before_restore "$HOME/$base" || continue
+    if cp "$latest" "$HOME/$base"; then
+      ok "Restored $HOME/$base from $(basename "$latest")"
+      restored=$((restored + 1))
+    else
+      fail "Could not restore $HOME/$base"
+    fi
+  done
+
+  if [ "$restored" -eq 0 ]; then
+    fail "No shell config backups found in $BACKUP_DIR"
+    return 1
+  fi
+  info "Open a new shell, or run: exec \$SHELL -l"
+  return 0
+}
+
+uninstall_tools() {
+  section "Removing tools installed by nanolander"
+  local path removed=0
+
+  if [ ! -f "$MANIFEST" ]; then
+    info "No install manifest at $MANIFEST."
+    info "Nothing recorded, so nothing is removed. Anything installed before"
+    info "this version has to be deleted from $LOCAL_BIN by hand."
+    return 0
+  fi
+
+  while IFS= read -r path || [ -n "$path" ]; do
+    [ -n "$path" ] || continue
+    # Never delete outside ~/.local, whatever the manifest says.
+    case "$path" in
+      "$LOCAL_BIN"/*|"$LOCAL_OPT"/*) ;;
+      *) warn "Refusing to remove a path outside ~/.local: $path"; continue ;;
+    esac
+    if [ -e "$path" ] || [ -L "$path" ]; then
+      if rm -rf "$path"; then
+        ok "Removed $path"
+        removed=$((removed + 1))
+      else
+        warn "Could not remove $path"
+      fi
+    fi
+  done < "$MANIFEST"
+
+  rm -f "$MANIFEST"
+  info "Removed $removed item(s) from ~/.local."
+  info "Tools installed through the system package manager are left alone."
+  return 0
+}
+
+uninstall_nanolander() {
+  section "Removing nanolander's shell configuration"
+  local base
+
+  for base in .zshrc .bashrc; do
+    remove_managed_lines "$HOME/$base"
+  done
+
+  if [ -f "$HOME/.zprofile" ] && grep -q 'brew shellenv' "$HOME/.zprofile" 2>/dev/null; then
+    warn "$HOME/.zprofile still has a Homebrew shellenv line."
+    info "It is left in place because removing it takes brew off your PATH,"
+    info "and it may predate nanolander. Delete it by hand if you want it gone."
+  fi
+
+  uninstall_tools
+
+  section "Done"
+  info "Shell config backups remain in $BACKUP_DIR"
+  info "Undo this with: ./bin/nanolander --restore-shell"
+  info "Open a new shell, or run: exec \$SHELL -l"
+  return 0
 }
 
 configure_git_pager() {
@@ -1312,17 +1591,30 @@ main() {
   # otherwise command_works cannot see what we just installed.
   export PATH="$LOCAL_BIN:$PATH"
 
-  # The log is a byte-for-byte copy of the screen, which is why the output
-  # helpers emit plain text.
-  if : > "$LOG_FILE" 2>/dev/null; then
-    run_all 2>&1 | tee -a "$LOG_FILE"
-    exit "${PIPESTATUS[0]}"
+  if [ "$DO_RESTORE_SHELL" -eq 1 ]; then
+    run_logged restore_shell
+    exit $?
+  fi
+  if [ "$DO_UNINSTALL" -eq 1 ]; then
+    run_logged uninstall_nanolander
+    exit $?
   fi
 
+  run_logged run_all
+  exit $?
+}
+
+# run_logged — run one function with its output teed to the log file. The log
+# is a byte-for-byte copy of the screen, which is why the output helpers emit
+# plain text.
+run_logged() {
+  if : > "$LOG_FILE" 2>/dev/null; then
+    "$1" 2>&1 | tee -a "$LOG_FILE"
+    return "${PIPESTATUS[0]}"
+  fi
   warn "Cannot write $LOG_FILE; continuing without a log file."
   LOG_FILE=""
-  run_all
-  exit $?
+  "$1"
 }
 
 # Sourcing this file with NANOLANDER_LIB=1 loads the functions without running

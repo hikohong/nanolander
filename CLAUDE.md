@@ -72,6 +72,15 @@ platform.
 - **Idempotent.** Re-running must not duplicate a shell rc line or reinstall
   what is already there. Shell config is written with whole-line comparison
   (`grep -Fqx`).
+- **Never modify a shell config file without a backup.** `add_line_once` and
+  `add_alias_block` call `backup_file_once` first and refuse to write when it
+  fails. Backups are lazy: a run that changes nothing writes none.
+- **Only ever append whole lines** to an rc file, never edit an existing one.
+  That is what makes removal by exact match, and by hand, safe.
+- **`--uninstall` deletes only what is recorded** in
+  `~/.local/share/nanolander/installed`, and only under `~/.local`. It never
+  removes system packages, and never touches the Homebrew line in
+  `~/.zprofile`.
 - **The log is the screen.** `~/nanolander-YYYYMMDD-HHMMSS.log` is a
   byte-for-byte copy of stdout, which is why the output helpers emit plain text
   with no ANSI colour. `grep '== Installing yq =='` on the log must keep working.
@@ -102,7 +111,11 @@ verify → shell config → summary.
 | `install_neovim_tree` | Neovim needs its runtime dir: `~/.local/opt/nvim-github` + symlink |
 | `make_compat_links` | Debian/Ubuntu ship `fdfind` / `batcat`; link them to `fd` / `bat` |
 | `command_works` | runs a real version query. Exceptions: `tmux -V`, `unzip -v`, `cscope -V`, `entr` by PATH presence |
+| `shell_line` | **the only definition of every managed rc line**; both `configure_shell` and the uninstaller read it, so they cannot drift apart |
 | `configure_shell` | PATH, zoxide, starship, direnv, fzf keys + `FZF_DEFAULT_COMMAND`, optional alias block |
+| `backup_file_once` / `backup_path` | copies a shell config file to `~/.nanolander-backups` before the first write of a run; `backup_path` never reuses a name, so two runs in the same second cannot clobber each other |
+| `restore_shell` | `--restore-shell`; snapshots the current file into `pre-restore/` — a subdirectory, so it is never a restore source and repeat runs stay idempotent |
+| `uninstall_nanolander` | `--uninstall`; drops the managed lines and alias block, then removes manifest paths, refusing anything outside `~/.local` |
 
 `NANOLANDER_LIB=1 . ./bin/nanolander` sources the functions without running
 anything. Use it to test internals.
@@ -145,6 +158,18 @@ bash -n bin/nanolander && bash -n bin/iterm-tune
 ./bin/nanolander --only tree                        # exercises a real install
 ./bin/nanolander --only tree                        # run twice: idempotency
 ```
+
+Backup, restore and uninstall are testable against a throwaway `HOME`:
+
+```bash
+H=$(mktemp -d); HOME=$H ./bin/nanolander --only tree --with-aliases
+HOME=$H ./bin/nanolander --restore-shell   # rc must come back byte for byte
+HOME=$H ./bin/nanolander --uninstall       # user lines must survive
+```
+
+Run install and restore back to back several times: a same-second collision
+used to overwrite the only copy of the original rc file, so that path is worth
+keeping under test.
 
 `github_install` can be exercised offline by overriding `github_api` to emit a
 fixture and pointing asset URLs at `file://` paths — that covers download,
