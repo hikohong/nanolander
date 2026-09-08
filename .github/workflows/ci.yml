@@ -1,0 +1,131 @@
+# Every change lands through an auto-merged PR, so this is the only thing
+# standing between a broken script and main. Keep it fast and keep it honest
+# about what it cannot reach — see tests/README.md.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: ShellCheck and syntax
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: sudo apt-get update -qq && sudo apt-get install -y shellcheck
+
+      # -S style is stricter than the warning-level bar the README claims, and
+      # the scripts are clean at it today. Any disable needs a comment saying why.
+      - name: ShellCheck
+        run: shellcheck -S style bin/nanolander bin/nvim-land bin/iterm-tune tests/*.sh
+
+      - name: Parse every script
+        run: |
+          for f in bin/* tests/*.sh; do
+            bash -n "$f" || exit 1
+          done
+
+      # macOS still ships bash 3.2. These constructs would work on the runner
+      # and fail there, which is the worst kind of breakage to ship.
+      - name: Reject bash 4+ constructs
+        run: |
+          if grep -nE 'declare -A|local -A|mapfile|readarray|\$\{[A-Za-z_]+,,|\$\{[A-Za-z_]+\^\^|\|&' \
+               bin/nanolander bin/nvim-land bin/iterm-tune \
+             | grep -v '^\S*:[0-9]*:#'; then
+            echo "bash 4+ construct found; macOS ships bash 3.2" >&2
+            exit 1
+          fi
+
+  test:
+    name: Test suites
+    runs-on: ${{ matrix.os }}
+    # The whole set takes about ten seconds. Anything approaching this is a
+    # hang, and the default is six hours of a runner sitting on it.
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      # No network, no root, no package installs: releases are local fixtures
+      # served over file:// and everything writes into a throwaway HOME.
+      - name: Run the suites
+        run: ./tests/run.sh
+
+  consistency:
+    name: Docs match the catalog
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # The tool count lives in four places. They drift silently otherwise.
+      - name: Tool count agrees everywhere
+        run: |
+          n=$(./bin/nanolander --list-tools | head -1 | grep -oE '[0-9]+ installable' | grep -oE '[0-9]+')
+          echo "catalog: $n tools"
+          readme=$(grep -cE '^\| \*\*' README.md)
+          cards=$(grep -c '<div class="card">' docs/index.html)
+          [ "$readme" = "$n" ] || { echo "README has $readme tool rows, catalog has $n" >&2; exit 1; }
+          [ "$cards" = "$n" ]  || { echo "docs has $cards cards, catalog has $n" >&2; exit 1; }
+          grep -q "| Tools installed | $n |" README.md || { echo "README summary table disagrees" >&2; exit 1; }
+          grep -q "<b>$n</b>" docs/index.html || { echo "docs hero fact disagrees" >&2; exit 1; }
+          grep -q ">$n tools<" docs/index.html || { echo "docs filter count disagrees" >&2; exit 1; }
+          grep -q "'$n tools'" docs/index.html || { echo "docs JS reset disagrees" >&2; exit 1; }
+
+      # The site is English only, and the scripts are too.
+      # grep -P needs a UTF-8 locale for \x{...} and silently matches nothing
+      # without one, so this is Python rather than grep.
+      - name: No CJK outside a deliberate place
+        run: |
+          python3 - <<'PY'
+          import pathlib, sys
+          roots = ['README.md', 'CLAUDE.md', 'docs', 'bin', 'share', 'tests']
+          bad = []
+          for root in roots:
+              p = pathlib.Path(root)
+              files = [p] if p.is_file() else sorted(f for f in p.rglob('*') if f.is_file())
+              for f in files:
+                  try:
+                      text = f.read_text(encoding='utf-8')
+                  except (UnicodeDecodeError, OSError):
+                      continue
+                  hits = {c for c in text if '\u4e00' <= c <= '\u9fff' or '\u3000' <= c <= '\u303f'}
+                  if hits:
+                      bad.append(f"{f}: {''.join(sorted(hits))}")
+          if bad:
+              print('CJK in files that are English only:', *bad, sep='\n  ', file=sys.stderr)
+              sys.exit(1)
+          print('no CJK found')
+          PY
+
+      - name: Every docs card has an example
+        run: |
+          python3 - <<'PY'
+          import re, sys
+          s = open('docs/index.html', encoding='utf-8').read()
+          sec = s[s.index('<section id="tools">'):s.index('<section id="how">')]
+          cards = [c for c in re.split(r'(?=<div class="card">)', sec)
+                   if c.startswith('<div class="card">')]
+          bad = [c[:80] for c in cards if '<button class="run">' not in c]
+          if bad:
+              print('cards with no example button:', bad, file=sys.stderr)
+              sys.exit(1)
+          opens, closes = len(re.findall(r'<div\b', s)), len(re.findall(r'</div>', s))
+          if opens != closes:
+              print(f'div tags unbalanced: {opens} open, {closes} close', file=sys.stderr)
+              sys.exit(1)
+          print(f'{len(cards)} cards, div tags balanced')
+          PY

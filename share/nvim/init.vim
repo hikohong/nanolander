@@ -61,9 +61,21 @@ if !has('cscope')
     set grepformat=%f:%l:%c:%m
   endif
   " s: symbol  c: callers  d: callees  t: text  e: pattern
+  "
+  " grep cannot build a call graph, so c and d cannot really answer "who calls
+  " this" and "what does this call" — they return the same word search as s.
+  " Say so rather than letting the letter imply an answer it did not give;
+  " layer 3 replaces both with real LSP call hierarchies once a server is
+  " attached.
+  function! s:NoCallGraph(kind) abort
+    echohl WarningMsg
+    echomsg 'cscope ' . a:kind . ': no call graph without a language server — showing every occurrence'
+    echohl None
+  endfunction
+
   nnoremap <C-\>s :silent grep! -w <C-R>=expand('<cword>')<CR><CR>:copen<CR>
-  nnoremap <C-\>c :silent grep! -w <C-R>=expand('<cword>')<CR><CR>:copen<CR>
-  nnoremap <C-\>d :silent grep! -w <C-R>=expand('<cword>')<CR><CR>:copen<CR>
+  nnoremap <C-\>c :silent grep! -w <C-R>=expand('<cword>')<CR><CR>:copen<CR>:call <SID>NoCallGraph('c callers')<CR>
+  nnoremap <C-\>d :silent grep! -w <C-R>=expand('<cword>')<CR><CR>:copen<CR>:call <SID>NoCallGraph('d callees')<CR>
   nnoremap <C-\>t :silent grep! -F <C-R>=expand('<cword>')<CR><CR>:copen<CR>
   nnoremap <C-\>e :silent grep!    <C-R>=expand('<cword>')<CR><CR>:copen<CR>
   " g: definition through the tags file  f: open file  i: who includes this

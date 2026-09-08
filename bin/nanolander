@@ -122,6 +122,7 @@ SKIP_LIST=""
 OPT_SET_DEFAULT_SHELL=0
 OPT_WITH_ALIASES=0
 OPT_CONFIGURE_GIT=0
+OPT_WITH_NVIM_CONFIG=0
 
 RESULTS=""        # cmd|status|source|path per line
 COUNT_SUCCESS=0
@@ -165,6 +166,8 @@ OPTIONS:
       --set-default-shell Switch the login shell to zsh (macOS / Amazon Linux).
       --with-aliases      Add the optional alias block to the shell rc file.
       --configure-git     Set git-delta as the global git pager.
+      --with-nvim-config  Also install the Neovim configuration, by running
+                          ./bin/nvim-land --apply once the tools are in.
       --restore-shell     Restore the most recent shell config backup.
       --uninstall         Remove the shell configuration and the tools this
                           script installed under ~/.local.
@@ -178,6 +181,7 @@ EXAMPLES:
   ./bin/nanolander --only nvim,tmux,fzf,ripgrep
   ./bin/nanolander --skip lazydocker,dive
   ./bin/nanolander --set-default-shell --with-aliases --configure-git
+  ./bin/nanolander --with-nvim-config
   ./bin/nanolander --restore-shell
   ./bin/nanolander --uninstall
 
@@ -254,6 +258,7 @@ parse_args() {
       --set-default-shell) OPT_SET_DEFAULT_SHELL=1 ;;
       --with-aliases) OPT_WITH_ALIASES=1 ;;
       --configure-git) OPT_CONFIGURE_GIT=1 ;;
+      --with-nvim-config) OPT_WITH_NVIM_CONFIG=1 ;;
       --version) printf 'nanolander %s\n' "$NANOLANDER_VERSION"; exit "$EXIT_OK" ;;
       --) shift; break ;;
       *)
@@ -1676,6 +1681,47 @@ uninstall_nanolander() {
   return 0
 }
 
+# script_dir — the directory holding this script, with $0 resolved through any
+# symlinks. README suggests linking bin/nanolander onto PATH, and a bare
+# dirname of the link would look for its siblings in the wrong place.
+# readlink without -f, because macOS has no -f.
+script_dir() {
+  local src="$0" dir
+  while [ -L "$src" ]; do
+    dir=$(cd -P "$(dirname "$src")" && pwd) || return 1
+    src=$(readlink "$src")
+    case "$src" in
+      /*) ;;
+      *) src="$dir/$src" ;;
+    esac
+  done
+  (cd -P "$(dirname "$src")" && pwd)
+}
+
+# install_nvim_config — hand off to the companion script rather than
+# duplicating it. It does its own reporting, backup and restore.
+install_nvim_config() {
+  section "Installing the Neovim configuration"
+  local helper
+  helper="$(script_dir)/nvim-land"
+  if [ ! -x "$helper" ]; then
+    warn "Cannot find bin/nvim-land next to this script; skipping."
+    info "It ships in the nanolander checkout. Run it there: ./bin/nvim-land"
+    return 1
+  fi
+  if ! command_works nvim; then
+    warn "Neovim is not installed, so there is no configuration to install."
+    return 1
+  fi
+  info "Running: $helper --apply"
+  if "$helper" --apply; then
+    ok "Neovim configuration installed."
+    return 0
+  fi
+  warn "nvim-land did not finish cleanly; run it directly to see why."
+  return 1
+}
+
 configure_git_pager() {
   section "Configuring git"
   if ! command -v git >/dev/null 2>&1; then
@@ -1817,6 +1863,7 @@ run_all() {
   configure_shell
   [ "$OPT_CONFIGURE_GIT" -eq 1 ] && configure_git_pager
   [ "$OPT_SET_DEFAULT_SHELL" -eq 1 ] && set_default_shell
+  [ "$OPT_WITH_NVIM_CONFIG" -eq 1 ] && install_nvim_config
 
   print_summary
 
