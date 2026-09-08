@@ -42,6 +42,17 @@ Each has an assertion here now. Keep them.
   `stub_tools`. Without that the run refreshes the package index for real:
   network, a sudo prompt, and minutes of CI time for a step none of these
   assertions are about. Everything past that point is the real code.
+
+  One exception, on macOS only: `setup_homebrew` evaluates `brew shellenv`
+  from the absolute path, which puts Homebrew's own bin directory ahead of the
+  stubs, so the `brew update` that follows is the real one. It costs about
+  twenty seconds and its failure is non-fatal, so it is left alone rather than
+  worked around.
+- **Nothing platform-specific is assumed.** `detect_environment` sends macOS to
+  `~/.zshrc` and everything else to `~/.bashrc`, so the shell-config suite
+  picks the name rather than hard-coding it. Hard-coding `.bashrc` made that
+  suite assert against a file macOS never writes — it passed on Linux and
+  failed eight assertions on the macOS runner.
 - **Nothing outside a throwaway `HOME`.** `temp_home` sets `TEST_HOME` and
   exports `HOME`; it does not print the path, because `H=$(temp_home)` would
   run the export in a subshell and leave the suite writing into the real home
