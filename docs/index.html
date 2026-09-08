@@ -176,7 +176,7 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
       </div>
 
       <div class="facts">
-        <div class="fact"><b>44</b><span>tools covering monitoring, Git, code navigation, containers, search, data, and network work</span></div>
+        <div class="fact"><b>45</b><span>tools covering monitoring, Git, code navigation, containers, search, data, and network work</span></div>
         <div class="fact"><b>4</b><span>operating systems, each mapped to brew, apt, dnf, or yum and the right shell file</span></div>
         <div class="fact"><b>3</b><span>CPU architectures fully covered: x86_64, arm64, armv7 (armv6 partially)</span></div>
         <div class="fact"><b>9</b><span>command-line options to install a subset, add aliases, set the Git pager, or undo the whole run</span></div>
@@ -285,7 +285,7 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
 
     <div class="filter">
       <input id="q" type="search" placeholder="Search tools or purpose…" aria-label="Search tools">
-      <span class="count" id="count">44 tools</span>
+      <span class="count" id="count">45 tools</span>
     </div>
 
     <div class="group" style="--c:#6fb2ff">
@@ -391,6 +391,9 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
         <div class="card"><span class="cmd">zoxide</span><span class="nm">zoxide</span>
           <p>A cd that remembers where you go, so a fragment of a path is enough to jump there.</p>
           <button class="run">z proj</button></div>
+        <div class="card"><span class="cmd">nerd-font</span><span class="nm">Nerd Font</span>
+          <p>Patched font carrying the glyphs the Starship prompt and eza icons draw with. Taken from the upstream release on every platform, so all four get identical files. Without it the prompt shows a box where each icon should be.</p>
+          <button class="run">NANOLANDER_NERD_FONT=Hack ./bin/nanolander --only nerd-font</button></div>
       </div>
     </div>
 
@@ -553,7 +556,7 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
 
   <section id="changes">
     <h2>What changed</h2>
-    <p class="sub">The toolkit grew from 19 to 44, with install paths verified on all four operating systems and every supported architecture. The script itself now passes ShellCheck.</p>
+    <p class="sub">The toolkit grew from 19 to 45, with install paths verified on all four operating systems and every supported architecture. The script itself now passes ShellCheck.</p>
     <div class="new">
       <span>bottom</span><span>git-delta</span><span>dive</span><span>sd</span><span>tree</span><span>duf</span><span>yq</span>
       <span>glow</span><span>xh</span><span>gping</span><span>hyperfine</span><span>watch</span><span>rsync</span><span>wget</span><span>unzip</span>
@@ -616,7 +619,7 @@ document.querySelectorAll('.card .run').forEach(function(btn){
       var any = g.querySelectorAll('.card:not([style*="none"])').length;
       g.style.display = any ? '' : 'none';
     });
-    count.textContent = t ? (n + ' matching') : '44 tools';
+    count.textContent = t ? (n + ' matching') : '45 tools';
   });
 })();
 

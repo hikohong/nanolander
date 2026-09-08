@@ -42,6 +42,12 @@ BACKUP_DIR="$HOME/.nanolander-backups"
 STATE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/nanolander"
 MANIFEST="$STATE_DIR/installed"
 
+# The patched font that supplies the glyphs Starship and eza icons draw with.
+# Deliberately fetched from the upstream release on every platform rather than
+# from brew/apt/dnf/yum, so all four end up with the identical font files.
+NERD_FONT_FAMILY="${NANOLANDER_NERD_FONT:-JetBrainsMono}"
+NERD_FONT_REPO="ryanoasis/nerd-fonts"
+
 # ---------------------------------------------------------------------------
 # Tool catalog — the single source of truth for --list-tools and the install
 # loop. One record per line: command|display name|category|purpose
@@ -72,6 +78,7 @@ nvim|Neovim|Terminal environment|Modern Vim fork with Lua config and LSP, used a
 tmux|tmux|Terminal environment|Terminal multiplexer; sessions survive an SSH drop
 starship|Starship|Terminal environment|Fast cross-shell prompt with git state, language versions and timing
 zoxide|zoxide|Terminal environment|Frecency-ranked cd replacement
+nerd-font|Nerd Font|Terminal environment|Patched font carrying the glyphs the Starship prompt and eza icons need
 eza|eza|File browsing & search|Modern ls with colors, icons, tree view and git status
 bat|bat|File browsing & search|cat with syntax highlighting and line numbers
 fd|fd|File browsing & search|Fast, friendly find replacement that respects .gitignore
@@ -567,6 +574,7 @@ pkg_candidates() {
     tmux)       printf 'tmux' ;;
     starship)   printf 'starship' ;;
     zoxide)     printf 'zoxide' ;;
+    nerd-font)  printf '' ;;   # same upstream release on every platform
     eza)        printf 'eza' ;;
     bat)        printf 'bat' ;;
     fd)         printf 'fd fd-find' ;;
@@ -927,6 +935,181 @@ github_install() {
 }
 
 # ---------------------------------------------------------------------------
+# Nerd Font
+#
+# Starship's default prompt and eza's icons draw glyphs from the Nerd Font
+# range. Without the font a terminal shows a box for every one of them, which
+# is what "the prompt looks broken after installing" turns out to be.
+#
+# The font comes from the upstream release on all four platforms, never from a
+# package manager, so macOS, Ubuntu and both Amazon Linux versions end up with
+# byte-identical font files. Only the install directory differs.
+# ---------------------------------------------------------------------------
+font_dir() {
+  if [ "$OS_KIND" = "macos" ]; then
+    # macOS does not scan subdirectories of ~/Library/Fonts, so files go here
+    # directly rather than into a folder of our own.
+    printf '%s' "$HOME/Library/Fonts"
+  else
+    printf '%s' "${XDG_DATA_HOME:-$HOME/.local/share}/fonts"
+  fi
+}
+
+# Any Nerd Font counts. If one is already there we leave it alone rather than
+# installing a second family over the top of the user's choice.
+nerd_font_installed() {
+  local dir candidate
+  dir=$(font_dir)
+  [ -d "$dir" ] || return 1
+  for candidate in "$dir"/*NerdFont*; do
+    [ -f "$candidate" ] && return 0
+  done
+  return 1
+}
+
+# select_named_asset — pick a release asset by exact file name. The font
+# release carries one archive per family rather than per architecture, so the
+# suffix matching select_asset does is the wrong tool here.
+select_named_asset() {
+  local assets="$1" want="$2" url digest
+  PICKED_URL=""
+  PICKED_DIGEST=""
+  while IFS="$(printf '\t')" read -r url digest; do
+    [ -n "$url" ] || continue
+    if [ "$(basename "$url")" = "$want" ]; then
+      PICKED_URL="$url"
+      PICKED_DIGEST="$digest"
+      return 0
+    fi
+  done <<ASSETS
+$assets
+ASSETS
+  return 1
+}
+
+install_nerd_font() {
+  local json assets tmp file dir actual want copied=0 candidate target
+
+  command -v curl >/dev/null 2>&1 || { warn "curl is required to fetch the font."; return 1; }
+
+  # unzip sits late in the catalog, so it may not be installed yet when we get
+  # here. The font archive needs it.
+  if ! command -v unzip >/dev/null 2>&1; then
+    info "unzip is needed to unpack the font; installing it first."
+    try_package_candidates unzip >/dev/null 2>&1
+  fi
+  if ! command -v unzip >/dev/null 2>&1; then
+    warn "unzip is unavailable; cannot unpack the font archive."
+    return 1
+  fi
+
+  want="${NERD_FONT_FAMILY}.zip"
+  info "Querying the latest release of $NERD_FONT_REPO"
+  json=$(github_api "https://api.github.com/repos/$NERD_FONT_REPO/releases/latest") || {
+    warn "GitHub API call failed for $NERD_FONT_REPO (rate limit? set GITHUB_TOKEN)."
+    return 1
+  }
+
+  assets=$(printf '%s' "$json" | parse_assets)
+  if ! select_named_asset "$assets" "$want"; then
+    warn "No asset named $want in the latest $NERD_FONT_REPO release."
+    info "Set NANOLANDER_NERD_FONT to a family that exists, for example Hack or Meslo."
+    return 1
+  fi
+
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/nanolander.XXXXXX") || return 1
+  file="$tmp/$want"
+
+  info "Downloading $want"
+  if ! curl -fsSL --retry 2 --connect-timeout 20 -o "$file" "$PICKED_URL"; then
+    warn "Download failed: $PICKED_URL"
+    rm -rf "$tmp"
+    return 1
+  fi
+
+  if [ -n "$PICKED_DIGEST" ]; then
+    actual=$(sha256_of "$file")
+    if [ -z "$actual" ]; then
+      warn "No sha256 tool available; skipping digest verification for the font."
+    elif [ "$actual" != "$PICKED_DIGEST" ]; then
+      fail "SHA-256 mismatch for $want; refusing to install."
+      rm -rf "$tmp"
+      return 1
+    else
+      ok "SHA-256 verified for $want."
+    fi
+  fi
+
+  mkdir -p "$tmp/x"
+  if ! unzip -q -o "$file" -d "$tmp/x"; then
+    warn "Could not unpack $want."
+    rm -rf "$tmp"
+    return 1
+  fi
+
+  dir=$(font_dir)
+  mkdir -p "$dir" || { rm -rf "$tmp"; return 1; }
+
+  # Install the monospaced cut only. The archive also ships proportional and
+  # variable-width variants, which a terminal cannot use and which would bury
+  # the useful faces in every font picker on the machine.
+  for candidate in "$tmp/x"/*NerdFontMono-*.ttf; do
+    [ -f "$candidate" ] || continue
+    target="$dir/$(basename "$candidate")"
+    if cp "$candidate" "$target"; then
+      record_installed "$target"
+      copied=$((copied + 1))
+    fi
+  done
+
+  if [ "$copied" -eq 0 ]; then
+    warn "The $want archive held no NerdFontMono faces; nothing installed."
+    rm -rf "$tmp"
+    return 1
+  fi
+
+  rm -rf "$tmp"
+
+  # fontconfig has to be told, otherwise the font stays invisible until the
+  # next login. macOS picks up ~/Library/Fonts on its own.
+  if [ "$OS_KIND" != "macos" ] && command -v fc-cache >/dev/null 2>&1; then
+    fc-cache -f "$dir" >/dev/null 2>&1
+  fi
+
+  ok "Installed $copied $NERD_FONT_FAMILY Nerd Font face(s) into $dir"
+  return 0
+}
+
+ensure_nerd_font() {
+  local cmd="$1" name="$2" dir
+  dir=$(font_dir)
+
+  if ! wants_tool "$cmd" "$name"; then
+    record_result "$cmd" "SKIPPED" "filter" "-"
+    return 0
+  fi
+
+  section "Installing $name"
+
+  if nerd_font_installed; then
+    ok "A Nerd Font is already installed in $dir"
+    record_result "$cmd" "SUCCESS" "existing" "$dir"
+    return 0
+  fi
+
+  if install_nerd_font; then
+    record_result "$cmd" "SUCCESS" "GitHub release" "$dir"
+    info "Now select \"$NERD_FONT_FAMILY Nerd Font Mono\" as your terminal's font."
+    info "Installing the font cannot change which font your terminal is set to."
+    return 0
+  fi
+
+  fail "$name could not be installed."
+  record_result "$cmd" "FAILED" "-" "-"
+  return 1
+}
+
+# ---------------------------------------------------------------------------
 # make_compat_links — Debian and Ubuntu ship fd as fdfind and bat as batcat.
 # Linking them under the upstream names keeps muscle memory portable.
 # ---------------------------------------------------------------------------
@@ -951,6 +1134,8 @@ make_compat_links() {
 # ---------------------------------------------------------------------------
 command_works() {
   local cmd="$1"
+  # The font is the one catalog entry that installs no command at all.
+  [ "$cmd" = "nerd-font" ] && { nerd_font_installed; return $?; }
   command -v "$cmd" >/dev/null 2>&1 || return 1
   case "$cmd" in
     entr)          return 0 ;;
@@ -1071,11 +1256,17 @@ install_all_tools() {
   local cmd name category purpose
   while IFS='|' read -r cmd name category purpose; do
     [ -n "$cmd" ] || continue
-    if [ "$OS_KIND" = "macos" ]; then
-      ensure_brew_tool "$cmd" "$name"
-    else
-      ensure_linux_tool "$cmd" "$name"
-    fi
+    case "$cmd" in
+      # The font takes the same route on every platform, by design.
+      nerd-font) ensure_nerd_font "$cmd" "$name" ;;
+      *)
+        if [ "$OS_KIND" = "macos" ]; then
+          ensure_brew_tool "$cmd" "$name"
+        else
+          ensure_linux_tool "$cmd" "$name"
+        fi
+        ;;
+    esac
   done <<CATALOG
 $TOOL_CATALOG
 CATALOG
@@ -1367,10 +1558,13 @@ uninstall_tools() {
 
   while IFS= read -r path || [ -n "$path" ]; do
     [ -n "$path" ] || continue
-    # Never delete outside ~/.local, whatever the manifest says.
+    # Never delete outside the directories this script installs into,
+    # whatever the manifest says. macOS fonts live outside ~/.local.
     case "$path" in
       "$LOCAL_BIN"/*|"$LOCAL_OPT"/*) ;;
-      *) warn "Refusing to remove a path outside ~/.local: $path"; continue ;;
+      "$HOME"/Library/Fonts/*) ;;
+      "${XDG_DATA_HOME:-$HOME/.local/share}"/fonts/*) ;;
+      *) warn "Refusing to remove a path outside nanolander's install directories: $path"; continue ;;
     esac
     if [ -e "$path" ] || [ -L "$path" ]; then
       if rm -rf "$path"; then
@@ -1383,7 +1577,10 @@ uninstall_tools() {
   done < "$MANIFEST"
 
   rm -f "$MANIFEST"
-  info "Removed $removed item(s) from ~/.local."
+  if command -v fc-cache >/dev/null 2>&1; then
+    fc-cache -f >/dev/null 2>&1
+  fi
+  info "Removed $removed item(s)."
   info "Tools installed through the system package manager are left alone."
   return 0
 }

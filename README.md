@@ -8,7 +8,7 @@ One script that installs the same modern terminal toolchain on macOS, Ubuntu, Am
 | --- | --- |
 | Main program | `bin/nanolander` |
 | Companion tool | `bin/iterm-tune` (iTerm2 performance tuning, macOS) |
-| Tools installed | 44 |
+| Tools installed | 45 |
 | Install source | Package manager first, official GitHub release when missing |
 | Install location | The package manager's default path, or `~/.local/bin` |
 | Log | `~/nanolander-YYYYMMDD-HHMMSS.log` |
@@ -23,6 +23,7 @@ One script that installs the same modern terminal toolchain on macOS, Ubuntu, Am
 - [Tool overview](#tool-overview)
 - [How the script works](#how-the-script-works)
 - [Shell configuration changes](#shell-configuration-changes)
+- [Terminal font](#terminal-font)
 - [Undoing a run](#undoing-a-run)
 - [Logs and exit codes](#logs-and-exit-codes)
 - [Notes and troubleshooting](#notes-and-troubleshooting)
@@ -242,6 +243,7 @@ Each entry comes with its purpose and a one-line command to get started.
 | **tmux** | `tmux` | Terminal multiplexer for persistent sessions and splits, so a dropped SSH connection doesn't kill your work.<br>`tmux new -s dev` |
 | **Starship** | `starship` | Fast cross-shell prompt showing Git state, language versions and run times. Enabled automatically.<br>`starship preset nerd-font-symbols` |
 | **zoxide** | `zoxide` | A `cd` that remembers where you go, so a fragment of a path is enough to jump there.<br>`z proj` (`z` comes from the shell integration) |
+| **Nerd Font** | — | Patched font carrying the glyphs the Starship prompt and eza icons draw with. Fetched from the upstream release on every platform, so all four get identical files.<br>See [Terminal font](#terminal-font) |
 
 ### Files and search
 
@@ -377,6 +379,45 @@ The fzf lines are guarded with a `command -v fzf` check and have their errors su
 
 ---
 
+## Terminal font
+
+The Starship prompt and eza's icons draw glyphs from the Nerd Font range. A terminal whose font lacks them shows a box for each one, which is what a prompt like `nanolander on □ main` means — a missing glyph, not a broken encoding.
+
+nanolander installs a patched font for you. It takes it from the [Nerd Fonts](https://github.com/ryanoasis/nerd-fonts) release rather than from Homebrew, APT, DNF or YUM, so macOS, Ubuntu and both Amazon Linux versions end up with byte-identical files. Only the destination differs:
+
+| Platform | Installed into |
+| --- | --- |
+| macOS | `~/Library/Fonts` |
+| Linux | `~/.local/share/fonts`, followed by `fc-cache -f` |
+
+Only the monospaced faces are installed. The archive also ships proportional and variable-width cuts, which a terminal cannot use and which would bury the useful faces in every font picker on the machine. If any Nerd Font is already present, the script leaves your choice alone and reports `existing`.
+
+Pick a different family with `NANOLANDER_NERD_FONT`, using any family name from the release:
+
+```bash
+NANOLANDER_NERD_FONT=Hack ./bin/nanolander --only nerd-font
+```
+
+### Then select it in your terminal
+
+**Installing a font cannot change which font your terminal is set to** — that setting belongs to the terminal, and on a remote machine it belongs to the terminal on your laptop, not the box you are SSH'd into. Once the run finishes, choose **JetBrainsMono Nerd Font Mono** (or whichever family you installed):
+
+| Terminal | Where |
+| --- | --- |
+| iTerm2 | Settings → Profiles → Text → Font |
+| Terminal.app | Settings → Profiles → Text → Font → Change |
+| GNOME Terminal | Preferences → your profile → Text → Custom font |
+| VS Code | `"terminal.integrated.fontFamily": "JetBrainsMono Nerd Font Mono"` |
+
+If you would rather not change the font, tell Starship to use plain text instead:
+
+```bash
+mkdir -p ~/.config
+printf '[git_branch]\nsymbol = " "\n' >> ~/.config/starship.toml
+```
+
+---
+
 ## Undoing a run
 
 Installing changes how your shell looks and behaves — the prompt in particular, which comes from Starship. Both ways back are built in.
@@ -471,6 +512,7 @@ When an install fails, search the log by tool name to find the relevant section,
 - **armv6 machines**: official release coverage is limited, and tools without a matching build are marked `FAILED`. Use `--only` to pick the ones you know work.
 - **When an install fails**: look at the `FAILED` rows in the summary first, then the matching section of the log. Everything else that succeeded is unaffected and ready to use.
 - **Re-running**: the script is safe to run repeatedly. Tools already present show as `existing`, and shell configuration is never added twice.
+- **Boxes instead of icons**: the font is installed but your terminal is still set to something else. See [Terminal font](#terminal-font).
 - **Changing your mind**: see [Undoing a run](#undoing-a-run). Shell config files are backed up before the first write of every run.
 
 ---
@@ -504,7 +546,7 @@ What it covers: GPU rendering is not disabled on battery, rendering favours thro
 
 ## What changed in this release
 
-### New tools (19 → 44)
+### New tools (19 → 45)
 
 Monitoring and files: `bottom`, `dive`, `sd`, `tree`, `duf`, `yq`, `glow`, `xh`, `gping`, `hyperfine`, `watch`, `rsync`, `wget`, `unzip`
 
