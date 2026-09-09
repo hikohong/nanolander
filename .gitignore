@@ -1,3 +1,41 @@
-# Nothing to ignore: share/nvim/lazy-lock.json is now shipped on purpose,
-# because it is what pins the plugin set. Regenerate it with
-# ./bin/nvim-land --freeze and commit the result.
+# macOS writes these into any directory it looks at, so a Mac user who opens
+# the repository in Finder — or just runs the installer from it — ends up with
+# them alongside the scripts. They are metadata about the folder, never
+# content, and none of them belong in a clone.
+#
+# Patterns without a leading slash match at every depth, which is what is
+# wanted here: Finder drops .DS_Store into subdirectories too.
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Resource forks, written when a file is copied to a filesystem that has no
+# native place for them. Every ._foo shadows a real foo.
+._*
+
+# Files a mounted volume gets, including one shared over the network.
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.apdisk
+
+# A folder with a custom Finder icon carries a file literally named "Icon"
+# followed by a carriage return. The Icon[\r] spelling copied around for this
+# matches nothing — git does not read \r as an escape there — and Icon? also
+# swallows any real Icons or Icon.png. A control-character class is the one
+# form that hits the CR and leaves ordinary names alone.
+Icon[[:cntrl:]]
+
+# Directories an AFP or SMB share leaves behind.
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+
+# Not ignored on purpose: share/nvim/lazy-lock.json is shipped, because it is
+# what pins the plugin set. Regenerate it with ./bin/nvim-land --freeze and
+# commit the result.
