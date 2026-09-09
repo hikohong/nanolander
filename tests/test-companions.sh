@@ -18,6 +18,13 @@ trap 'rm -rf "$H"' EXIT
 STUB="$H/stub"
 stub_tools "$STUB" git apt-get brew dnf yum sudo
 
+# command_works requires the version query to print something, so a stub that
+# only exits 0 is reported as a failed tool and the run ends in EXIT_PARTIAL.
+# git is the tool these runs ask for, so its stub has to answer like the real
+# one or the exit code below says 2 for a reason that is not under test.
+printf '#!/bin/sh\ncase "$1" in --version) echo "git version 2.43.0";; *) exit 0;; esac\n' > "$STUB/git"
+chmod +x "$STUB/git"
+
 # A stub nvim, kept in its own directory so the second case below can run
 # without it. Putting it in $STUB would leave it on PATH for every run and the
 # "Neovim is missing" branch would never be reached.
