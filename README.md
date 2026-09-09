@@ -8,7 +8,7 @@ One script that installs the same modern terminal toolchain on macOS, Ubuntu, Am
 | --- | --- |
 | Main program | `bin/nanolander` |
 | Companion tools | `bin/nvim-land` (Neovim configuration), `bin/iterm-tune` (iTerm2 performance tuning, macOS) |
-| Tools installed | 47 |
+| Tools installed | 54 |
 | Install source | Package manager first, official GitHub release when missing |
 | Install location | The package manager's default path, or `~/.local/bin` |
 | Log | `~/nanolander-YYYYMMDD-HHMMSS.log` |
@@ -25,6 +25,7 @@ One script that installs the same modern terminal toolchain on macOS, Ubuntu, Am
 - [How the script works](#how-the-script-works)
 - [Shell configuration changes](#shell-configuration-changes)
 - [Terminal font](#terminal-font)
+- [File previews](#file-previews)
 - [Tests](#tests)
 - [Undoing a run](#undoing-a-run)
 - [Logs and exit codes](#logs-and-exit-codes)
@@ -51,8 +52,8 @@ One script that installs the same modern terminal toolchain on macOS, Ubuntu, Am
 | Architecture | Coverage |
 | --- | --- |
 | `x86_64` / `amd64` | All tools |
-| `arm64` / `aarch64` | All tools on macOS; on Linux all but Neovide, which upstream does not build for it |
-| `armv7` | Most tools (`dive` has no official armv7 build) |
+| `arm64` / `aarch64` | All tools on macOS; on Linux all but Neovide and resvg, which upstream builds for `x86_64` only |
+| `armv7` | Most tools (`dive` and `yazi` have no official armv7 build) |
 | `armv6` | Some tools; the rest are reported as failed and can be skipped |
 
 ---
@@ -263,6 +264,7 @@ Each entry comes with its purpose and a one-line command to get started.
 
 | Tool | Command | What it does, and an example |
 | --- | --- | --- |
+| **yazi** | `yazi` | Terminal file manager with asynchronous I/O, so a directory of ten thousand files does not block it, and real image previews rather than ASCII approximations. Upstream builds `x86_64` and `aarch64`, so on 32-bit ARM it is `SKIPPED`, not failed. See [File previews](#file-previews).<br>`yazi` |
 | **eza** | `eza` | Modern `ls` replacement with colours, icons, tree view and Git status.<br>`eza -lah --git` |
 | **bat** | `bat` | `cat` with syntax highlighting and line numbers, and a decent reader in its own right.<br>`bat script.sh` |
 | **fd** | `fd` | Fast, ergonomic `find` replacement that respects `.gitignore` by default.<br>`fd --extension py` |
@@ -270,6 +272,21 @@ Each entry comes with its purpose and a one-line command to get started.
 | **sd** | `sd` | Find and replace with syntax that is much easier to remember than `sed -i`.<br>`sd 'old_name' 'new_name' src/*.py` |
 | **fzf** | `fzf` | Fuzzy finder for any list. `Ctrl-R` searches shell history and `Ctrl-T` picks files, both wired up for you.<br>`nvim $(fzf)` |
 | **tree** | `tree` | Print a directory hierarchy as an indented tree.<br>`tree -L 2` |
+
+### File preview backends
+
+yazi renders text, code and common raster images itself. Everything else it hands to one of these, which is why they are in the catalog — though each is a useful tool in its own right.
+
+| Tool | Command | What it does, and an example |
+| --- | --- | --- |
+| **file** | `file` | MIME detection: how yazi decides which previewer a file needs in the first place.<br>`file -b --mime-type report.pdf` |
+| **FFmpeg** | `ffmpeg` | Video and audio thumbnails, and the duration and dimensions shown beside them. `ffprobe` is installed alongside it and is the half yazi actually calls.<br>`ffprobe -hide_banner clip.mp4` |
+| **Poppler** | `pdftoppm` | Renders a PDF page to an image, so the preview pane shows the page rather than the words "PDF document".<br>`pdftoppm -png -f 1 -l 1 doc.pdf page` |
+| **7-Zip** | `7zz` | Reads the contents of an archive without unpacking it, so `Enter` on a `.zip` lists what is inside.<br>`7zz l archive.zip` |
+| **ImageMagick** | `magick` | Converts the formats nothing else reads — HEIC, JPEG XL, font files.<br>`magick photo.heic photo.png` |
+| **resvg** | `resvg` | Renders SVG properly, rather than rasterising it badly. Upstream publishes macOS builds and one Linux build, `x86_64` only, and no distribution packages it, so elsewhere it is `SKIPPED`.<br>`resvg logo.svg logo.png` |
+
+> `file` is already on every supported platform, so it normally reports `existing`. The others come from the package manager where it has them — including Amazon Linux 2023's `ffmpeg-free` — and from the project's release otherwise.
 
 ### Disk and space
 
@@ -419,17 +436,32 @@ The path taken for tools the repositories do not carry:
 
 Setting the `GITHUB_TOKEN` environment variable adds an authentication header, which raises the API rate limit.
 
+### `github_asset_name`
+
+Two projects publish more than one build per architecture, and for both of them keyword matching picks the wrong one, so their asset is named outright:
+
+| Tool | Why matching gets it wrong |
+| --- | --- |
+| yazi | Upstream ships a `gnu` and a `musl` build of each target. The `gnu` one wants a newer glibc than Amazon Linux 2 has, so it installs and then cannot run. The `musl` one is static and runs everywhere. |
+| FFmpeg | Every target comes as `-gpl` and `-gpl-shared`, and containment finds the shared one first because it sorts earlier. Its `ffmpeg` needs the archive's `lib` directory, which the install throws away. |
+
+If upstream ever renames one of those files, the run says so and falls back to keyword matching rather than failing.
+
+### `github_extras`
+
+Some archives carry a second binary that is not optional. yazi ships `ya`, which is what runs `ya pkg` for plugins; FFmpeg ships `ffprobe`, which is the half yazi calls to read a video's dimensions. Both are installed alongside the catalog command and recorded for `--uninstall`. A missing extra is a warning, not a failure.
+
 ### `tool_unsupported_here` / `ensure_tool`
 
-The catalog is deliberately the same on all four platforms, with one exception: Neovide is a GUI client and upstream builds it for macOS and `x86_64` Linux only. On a Graviton instance or a Raspberry Pi there is nothing to install, so it is recorded `SKIPPED` with the reason `platform` rather than counted as a failure. `ensure_tool` is the wrapper that makes that decision before choosing the Homebrew or the Linux path.
+The catalog is deliberately the same on all four platforms, with three exceptions. Neovide is a GUI client and resvg has a single Linux target, so upstream builds both for macOS and `x86_64` Linux only; yazi has no 32-bit ARM build anywhere. None of the three is in the Debian, Ubuntu or Amazon Linux repositories either, so on a Graviton instance or a Raspberry Pi there is genuinely nothing to fetch. Those are recorded `SKIPPED` with the reason `platform` rather than counted as failures. `ensure_tool` is the wrapper that makes that decision before choosing the Homebrew or the Linux path.
 
 ### `make_compat_links`
 
-Debian and Ubuntu name the executables `fdfind` and `batcat`. This function creates `fd` and `bat` links in `~/.local/bin` so that usage stays the same on every platform.
+Three tools are packaged under a different executable name than the one everything else expects. Debian and Ubuntu call them `fdfind` and `batcat`; the older p7zip packages call 7-Zip `7z` rather than `7zz`; and ImageMagick 6 — still what Ubuntu and Amazon Linux package — has `convert` but no `magick`. This function creates `fd`, `bat`, `7zz` and `magick` links in `~/.local/bin` so that usage stays the same on every platform. The ImageMagick link covers the plain `convert in out` form the previewers use; it is not a general ImageMagick 7 substitute.
 
 ### `command_works`
 
-Confirms a tool really is usable: first that the command exists, then by actually running a version query. `tmux` uses `-V`, `unzip` uses `-v` and `cscope` uses `-V`; everything else uses `--version`. `entr` has no version flag, so being on the PATH is the test. Only a tool that passes is recorded as a success.
+Confirms a tool really is usable: first that the command exists, then by actually running a version query. `tmux` uses `-V`, `unzip` and `pdftoppm` use `-v`, `cscope` uses `-V`, `ffmpeg` uses `-version`; everything else uses `--version`. `entr` and 7-Zip have no version flag at all — a bare `7zz` prints its banner and then a usage screen — so for those two being on the PATH is the test. Only a tool that passes is recorded as a success.
 
 ### `ensure_linux_tool` / `ensure_brew_tool`
 
@@ -503,6 +535,48 @@ printf '[git_branch]\nsymbol = " "\n' >> ~/.config/starship.toml
 
 ---
 
+## File previews
+
+yazi previews images by drawing them, not by approximating them in text. **Installing it cannot make your terminal capable of that**, for the same reason installing a font cannot select it: the decision belongs to the terminal, and on a remote machine it belongs to the terminal on your own laptop rather than the box you are SSH'd into.
+
+### Over SSH
+
+The three protocols yazi can use are all escape sequences on stdout, so they do travel over SSH. Only one adapter cannot.
+
+| Adapter | Works over SSH | Why |
+| --- | --- | --- |
+| Kitty graphics protocol | yes | an escape sequence carrying the image inline |
+| iTerm2 inline images | yes | the same, base64 inside the sequence |
+| Sixel | yes | the same |
+| Überzug++ | **no** | it opens an overlay window and so needs a local display |
+
+Three things get in the way in practice:
+
+1. **`TERM_PROGRAM` is not forwarded.** yazi reads the environment to decide which adapter to use, and SSH does not pass that variable. Add it per host in `~/.ssh/config`:
+
+   ```
+   Host myhost
+     SetEnv TERM_PROGRAM=iTerm.app
+   ```
+
+2. **tmux swallows the sequences** unless it is told to pass them through, which needs tmux 3.3 or newer:
+
+   ```bash
+   echo 'set -g allow-passthrough on' >> ~/.tmux.conf
+   ```
+
+3. **The backends have to be on the machine you are browsing**, not on your laptop. That is what the [File preview backends](#file-preview-backends) entries are for, and why nanolander installs them on the remote box along with yazi.
+
+Ask yazi what it actually detected:
+
+```bash
+yazi --debug
+```
+
+On a slow link the image payloads are the expensive part; nothing else about yazi is chatty.
+
+---
+
 ## Tests
 
 ```bash
@@ -512,7 +586,7 @@ printf '[git_branch]\nsymbol = " "\n' >> ~/.config/starship.toml
 
 They need no network, no root and no particular platform: GitHub releases are local fixtures served over `file://` with the API call stubbed, and anything that writes writes into a throwaway `HOME`. That covers the download, SHA-256 check, extraction and install path for real.
 
-Three suites exist because of bugs that shipped — an `arm64` host handed a `linux_arm` build, the last asset of every release silently dropped, and a same-second backup collision that destroyed the only copy of an rc file. Each has an assertion now.
+Four suites exist because of a way asset selection or a write can go wrong — an `arm64` host handed a `linux_arm` build, the last asset of every release silently dropped, a same-second backup collision that destroyed the only copy of an rc file, and keyword matching preferring FFmpeg's shared build and yazi's `gnu` build over the ones that actually run. Each has an assertion now, so a refactor cannot quietly reopen them.
 
 What they cannot reach: macOS (Homebrew, and all of `iterm-tune`'s writing), Amazon Linux, the live GitHub API, and a real Neovim load. `tests/README.md` says so in full; CI repeats the same list rather than implying otherwise.
 
@@ -607,7 +681,9 @@ When an install fails, search the log by tool name to find the relevant section,
   ```
 
 - **Docker tools**: `lazydocker` and `dive` need a working local Docker to be useful. On machines without it, use `--skip lazydocker,dive`.
-- **Repository-only tools**: `tig`, `cscope`, `entr` and `ctags` have no official cross-platform binaries and can only come from a distribution package. Amazon Linux 2023 does not include EPEL, so these may come out as `FAILED`; either exclude them with `--skip tig,cscope,entr` or enable EPEL yourself and run again.
+- **Repository-only tools**: `tig`, `cscope`, `entr` and `ctags` have no official cross-platform binaries and can only come from a distribution package, and so do Poppler, ImageMagick and `file`, which every supported distribution carries. Amazon Linux 2023 does not include EPEL, so some of these may come out as `FAILED`; either exclude them with `--skip tig,cscope,entr` or enable EPEL yourself and run again.
+- **Boxes instead of a picture**: yazi is installed and the backends are there, but the terminal cannot draw an image. See [File previews](#file-previews) — inside tmux it is usually the missing `allow-passthrough` line.
+- **`.tar.xz` release assets** (FFmpeg, 7-Zip) need `xz` for `tar` to unpack them. A minimal image may not have it; the run says so rather than reporting an unexplained extraction failure. Install `xz` or `xz-utils` and run again.
 - **Amazon Linux 2**: the repositories are older, so most modern tools are installed from a GitHub release into `~/.local/bin`. That is expected.
 - **armv6 machines**: official release coverage is limited, and tools without a matching build are marked `FAILED`. Use `--only` to pick the ones you know work.
 - **When an install fails**: look at the `FAILED` rows in the summary first, then the matching section of the log. Everything else that succeeded is unaffected and ready to use.
@@ -654,6 +730,17 @@ macOS users can also tune iTerm2's rendering settings. Look at the current state
 What it covers: GPU rendering is not disabled on battery, rendering favours throughput, transparency and blur are turned off, ligatures are turned off, and scrollback becomes bounded instead of unlimited. Trigger counts and background images are reported only, never modified.
 
 ## What changed in this release
+
+### yazi and its preview backends (new, 47 → 54)
+
+`yazi` joins the catalog as the file manager, together with the six things it hands a file to when it cannot render it itself: `file`, FFmpeg, Poppler, 7-Zip, ImageMagick and resvg. All seven install on every supported platform that has a build — see [File preview backends](#file-preview-backends) for what each one covers, and [File previews](#file-previews) for why installing them still cannot make your terminal draw an image.
+
+Two mechanisms came with them, both in `github_install`:
+
+- `github_asset_name` pins the exact release asset for the two projects where keyword matching picks the wrong file — yazi's `gnu` build, which will not run on Amazon Linux 2, and FFmpeg's `-gpl-shared` build, whose binary needs a `lib` directory the install discards. An upstream rename falls back to matching with a warning instead of failing.
+- `github_extras` installs the second binary an archive carries when it is not optional: `ya` with yazi, `ffprobe` with FFmpeg.
+
+`make_compat_links` gained two more links for the same reason it had the first two: the older p7zip packages call 7-Zip `7z`, and ImageMagick 6 has `convert` but no `magick`.
 
 ### Neovim configuration (new)
 
