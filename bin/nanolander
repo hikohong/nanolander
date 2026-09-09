@@ -118,6 +118,7 @@ OS_LABEL=""
 PKG_MANAGER=""    # brew | apt-get | dnf | yum
 SHELL_RC=""
 SHELL_KIND=""     # zsh | bash
+SHELL_RC_REASON="" # why that file was picked, for the report
 ARCH=""           # x86_64 | arm64 | armv7 | armv6
 RAW_ARCH=""
 ARCH_KEYWORDS=""
@@ -126,6 +127,7 @@ BREW_BIN=""
 
 ONLY_LIST=""
 SKIP_LIST=""
+OPT_SHELL=""      # --shell bash|zsh, empty when not given
 OPT_SET_DEFAULT_SHELL=0
 OPT_WITH_ALIASES=0
 OPT_CONFIGURE_GIT=0
@@ -170,6 +172,9 @@ OPTIONS:
       --list-tools        List every installable tool and exit.
       --only a,b,c        Install only these tools; everything else is SKIPPED.
       --skip a,b,c        Install everything except these tools.
+      --shell bash|zsh    Configure this shell instead of the one detected from
+                          your login shell. Use it when you log in as one shell
+                          and want the other one set up.
       --set-default-shell Switch the login shell to zsh (macOS / Amazon Linux).
       --with-aliases      Add the optional alias block to the shell rc file.
       --configure-git     Set git-delta as the global git pager.
@@ -182,11 +187,18 @@ OPTIONS:
   Names may be either the command (rg) or the tool name (ripgrep); matching
   ignores case and surrounding whitespace. Options combine freely.
 
+SHELL CONFIG FILE:
+  The file is chosen from your login shell, because that is what decides which
+  file is read: bash gets ~/.bashrc, zsh gets ~/.zshrc, and a wrapper counts
+  (an Amazon cloud desktop logs you into logbash, which is bash). If the login
+  shell is neither, the platform default is used. --shell overrides all of it.
+
 EXAMPLES:
   ./bin/nanolander
   ./bin/nanolander --list-tools
   ./bin/nanolander --only nvim,tmux,fzf,ripgrep
   ./bin/nanolander --skip lazydocker,dive
+  ./bin/nanolander --shell zsh
   ./bin/nanolander --set-default-shell --with-aliases --configure-git
   ./bin/nanolander --with-nvim-config
   ./bin/nanolander --restore-shell
@@ -264,6 +276,10 @@ parse_args() {
         [ $# -ge 2 ] || { fail "--skip needs a comma separated list."; return "$EXIT_USAGE"; }
         SKIP_LIST="$2"; shift ;;
       --skip=*) SKIP_LIST="${1#--skip=}" ;;
+      --shell)
+        [ $# -ge 2 ] || { fail "--shell needs bash or zsh."; return "$EXIT_USAGE"; }
+        OPT_SHELL="$2"; shift ;;
+      --shell=*) OPT_SHELL="${1#--shell=}" ;;
       --set-default-shell) OPT_SET_DEFAULT_SHELL=1 ;;
       --with-aliases) OPT_WITH_ALIASES=1 ;;
       --configure-git) OPT_CONFIGURE_GIT=1 ;;
@@ -279,6 +295,23 @@ parse_args() {
   done
   if [ -n "$ONLY_LIST" ] && [ -n "$SKIP_LIST" ]; then
     fail "--only and --skip cannot be used together."
+    return "$EXIT_USAGE"
+  fi
+  if [ -n "$OPT_SHELL" ]; then
+    OPT_SHELL=$(normalise "$OPT_SHELL")
+    case "$OPT_SHELL" in
+      bash|zsh) ;;
+      *)
+        fail "--shell takes bash or zsh, not: $OPT_SHELL"
+        return "$EXIT_USAGE" ;;
+    esac
+  fi
+  # --shell says which rc file to write; --set-default-shell would then switch
+  # the login shell to zsh underneath it. Asking for both in opposite
+  # directions configures a file the new login shell will not read.
+  if [ "$OPT_SHELL" = "bash" ] && [ "$OPT_SET_DEFAULT_SHELL" -eq 1 ]; then
+    fail "--shell bash and --set-default-shell contradict each other."
+    info "--set-default-shell makes zsh your login shell, which reads ~/.zshrc."
     return "$EXIT_USAGE"
   fi
   if [ "$DO_RESTORE_SHELL" -eq 1 ] && [ "$DO_UNINSTALL" -eq 1 ]; then
@@ -333,6 +366,10 @@ wants_tool() {
 # Environment detection — uname -s plus /etc/os-release decide the package
 # manager and the shell rc target; uname -m is normalised into the keyword
 # set used later to pick a GitHub release asset.
+#
+# SHELL_RC/SHELL_KIND are set per platform here only as a fallback;
+# resolve_shell_rc below has the last word, because the login shell decides
+# which file is actually read.
 # ---------------------------------------------------------------------------
 detect_environment() {
   section "Detected environment"
@@ -426,12 +463,103 @@ detect_environment() {
     esac
   fi
 
+  resolve_shell_rc
+
   info "OS: $OS_LABEL"
   info "Architecture: $RAW_ARCH ($ARCH)"
   info "Package manager: $PKG_MANAGER"
-  info "Shell config: $SHELL_RC ($SHELL_KIND)"
+  info "Shell config: $SHELL_RC ($SHELL_KIND) — $SHELL_RC_REASON"
   info "Local bin: $LOCAL_BIN"
   [ -n "${GITHUB_TOKEN:-}" ] && info "GITHUB_TOKEN detected; GitHub API calls will be authenticated."
+  return 0
+}
+
+current_login_shell() {
+  if [ "$OS_KIND" = "macos" ]; then
+    dscl . -read "/Users/$(id -un)" UserShell 2>/dev/null | awk '{print $2}'
+  else
+    getent passwd "$(id -un)" 2>/dev/null | cut -d: -f7
+  fi
+}
+
+# shell_kind_of — which flavour of rc file does this login shell read? Matched
+# on the suffix rather than the exact name, because a wrapper counts: an Amazon
+# cloud desktop logs you into /usr/bin/logbash, which is bash and reads
+# ~/.bashrc. Anything else — fish, tcsh, sh — gets no answer at all, so the
+# caller keeps the platform default instead of guessing.
+shell_kind_of() {
+  case "$(basename "${1:-}")" in
+    *zsh)  printf 'zsh' ;;
+    *bash) printf 'bash' ;;
+    *)     printf '' ;;
+  esac
+}
+
+# resolve_shell_rc — the platform decides the package manager, but only the
+# login shell decides which rc file is ever read. Choosing by distribution
+# alone put an Amazon Linux cloud desktop's configuration into ~/.zshrc while
+# the login shell was logbash: none of it was sourced, and sourcing it by hand
+# printed zsh syntax errors from bash for every line.
+#
+# Precedence, strongest first:
+#   --shell bash|zsh      the user said so outright
+#   --set-default-shell   the user is switching to zsh, so target zsh
+#   the login shell       whatever will actually read a file
+#   the platform default  no login shell we recognise
+resolve_shell_rc() {
+  local kind="" login=""
+  login=$(current_login_shell)
+
+  if [ -n "$OPT_SHELL" ]; then
+    kind="$OPT_SHELL"
+    SHELL_RC_REASON="asked for with --shell"
+  elif [ "$OPT_SET_DEFAULT_SHELL" -eq 1 ] && [ "$OS_KIND" != "ubuntu" ]; then
+    kind="zsh"
+    SHELL_RC_REASON="--set-default-shell is making zsh your login shell"
+  else
+    kind=$(shell_kind_of "$login")
+    if [ -n "$kind" ]; then
+      SHELL_RC_REASON="login shell is $login"
+    else
+      kind="$SHELL_KIND"
+      if [ -n "$login" ]; then
+        SHELL_RC_REASON="$OS_LABEL default; login shell $login is neither bash nor zsh"
+      else
+        SHELL_RC_REASON="$OS_LABEL default; could not read your login shell"
+      fi
+    fi
+  fi
+
+  SHELL_KIND="$kind"
+  case "$kind" in
+    zsh) SHELL_RC="$HOME/.zshrc" ;;
+    *)   SHELL_RC="$HOME/.bashrc" ;;
+  esac
+}
+
+# report_foreign_rc — the other rc file may already carry managed lines, either
+# from a run under a different shell or from a version of this script that
+# chose the file by distribution. Those lines are the failure this resolution
+# exists to prevent, so say where they are. Never move or delete them: that
+# file belongs to the user, and it is legitimate to configure both shells.
+report_foreign_rc() {
+  local other="" pat found
+  case "$SHELL_KIND" in
+    zsh) other="$HOME/.bashrc" ;;
+    *)   other="$HOME/.zshrc" ;;
+  esac
+  [ -f "$other" ] || return 0
+
+  pat=$(mktemp "${TMPDIR:-/tmp}/nanolander.XXXXXX") || return 0
+  managed_lines > "$pat"
+  found=$(grep -Fxc -f "$pat" "$other" 2>/dev/null)
+  rm -f "$pat"
+  [ "${found:-0}" -gt 0 ] || return 0
+
+  warn "$other also carries $found managed line(s), and your login shell does not read it."
+  info "They do nothing where they are, and sourcing that file from the other shell"
+  info "prints syntax errors rather than working. Leave them, delete them by hand,"
+  info "or re-run with --shell to configure that shell instead."
   return 0
 }
 
@@ -1603,6 +1731,7 @@ configure_shell() {
   fi
 
   [ "$OPT_WITH_ALIASES" -eq 1 ] && add_alias_block "$rc"
+  report_foreign_rc
   return 0
 }
 
@@ -1876,14 +2005,6 @@ configure_git_pager() {
   return 0
 }
 
-current_login_shell() {
-  if [ "$OS_KIND" = "macos" ]; then
-    dscl . -read "/Users/$(id -un)" UserShell 2>/dev/null | awk '{print $2}'
-  else
-    getent passwd "$(id -un)" 2>/dev/null | cut -d: -f7
-  fi
-}
-
 set_default_shell() {
   section "Setting the default shell"
   if [ "$OS_KIND" = "ubuntu" ]; then
@@ -1921,8 +2042,9 @@ set_default_shell() {
   return 1
 }
 
-# Amazon Linux writes its configuration to ~/.zshrc, so zsh has to exist for
-# any of it to be read.
+# When the configuration is going into ~/.zshrc, zsh has to exist for any of it
+# to be read. Gated on SHELL_KIND rather than on the platform, so a box that
+# logs you into bash no longer gets zsh installed for a file nothing reads.
 ensure_zsh_present() {
   [ "$SHELL_KIND" = "zsh" ] || return 0
   command -v zsh >/dev/null 2>&1 && return 0
@@ -1986,6 +2108,7 @@ print_next_steps() {
   section "Next steps"
   info "Reload your shell configuration:"
   printf '    source %s\n' "$SHELL_RC"
+  info "$SHELL_RC holds $SHELL_KIND syntax, so source it from $SHELL_KIND."
   info "Or just log out and back in."
   [ -n "$LOG_FILE" ] && info "Full log: $LOG_FILE"
 }

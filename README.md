@@ -40,12 +40,19 @@ One script that installs the same modern terminal toolchain on macOS, Ubuntu, Am
 
 ### Operating systems
 
-| Operating system | Package manager | Shell config file |
+| Operating system | Package manager | Shell config file if the login shell is not recognised |
 | --- | --- | --- |
 | macOS | Homebrew | `~/.zshrc` (plus `~/.zprofile`) |
 | Ubuntu | APT | `~/.bashrc` |
 | Amazon Linux 2 / legacy | YUM | `~/.zshrc` |
 | Amazon Linux 2023 | DNF | `~/.zshrc` |
+
+The package manager comes from the platform, but **the config file comes from
+your login shell**, because that is what decides which file is ever read: bash
+gets `~/.bashrc`, zsh gets `~/.zshrc`. A wrapper counts — an Amazon cloud
+desktop logs you into `logbash`, which is bash. The column above is only the
+fallback for a login shell that is neither, and [`--shell`](#--shell-bashzsh)
+overrides all of it.
 
 ### CPU architectures
 
@@ -78,16 +85,16 @@ To call it from anywhere, link it onto your PATH:
 ln -s "$PWD/bin/nanolander" ~/.local/bin/nanolander
 ```
 
-Load the new settings once the run finishes:
+Load the new settings once the run finishes. The run prints the file it wrote
+and the reason it picked that one, so copy the line from there:
 
 ```bash
-# Ubuntu
+# whichever the run reported, e.g.
 source ~/.bashrc
-
-# macOS / Amazon Linux
-source ~/.zshrc
 ```
 
+Source it from the shell it was written for: `~/.zshrc` holds zsh syntax, and
+sourcing it from bash prints a syntax error per line rather than doing anything.
 Or simply log out and back in.
 
 ---
@@ -132,9 +139,27 @@ Install everything except these. Handy for machines without Docker (drop `lazydo
 ./bin/nanolander --skip lazydocker,dive
 ```
 
+### `--shell bash|zsh`
+
+Configure that shell instead of the one detected from your login shell. Use it when you log in as one shell and want the other one set up — or to configure both, by running the script twice.
+
+```bash
+./bin/nanolander --shell zsh
+```
+
+Without it the target is decided in this order, strongest first: `--shell`, then `--set-default-shell` (which is a request for zsh), then your login shell, then the platform default. Every run prints which file it chose and why:
+
+```
+[INFO] Shell config: /home/you/.bashrc (bash) — login shell is /usr/bin/logbash
+```
+
+If the *other* file already carries managed lines — from a run under a different shell, or from a version of this script that chose the file by platform alone — the run says so and leaves them alone. They do nothing where they are, so deleting them is optional and yours to do.
+
 ### `--set-default-shell`
 
 On macOS and Amazon Linux, change the current user's login shell to zsh. It does nothing if zsh is already the login shell. Ubuntu is configured through bash, so the option has no effect there.
+
+Because it makes zsh your login shell, it also makes the run target `~/.zshrc` — otherwise the run would configure the shell you are about to stop using. That is why `--shell bash --set-default-shell` is rejected as a contradiction.
 
 ```bash
 ./bin/nanolander --set-default-shell
@@ -479,7 +504,7 @@ At the end the script prints a table showing each tool, its status (`SUCCESS` / 
 
 ## Shell configuration changes
 
-Depending on the platform, the script writes to `~/.bashrc` or `~/.zshrc`:
+The script writes to `~/.bashrc` or `~/.zshrc`, whichever your login shell reads (see [`--shell`](#--shell-bashzsh)):
 
 | Setting | Content | Condition |
 | --- | --- | --- |
@@ -586,7 +611,7 @@ On a slow link the image payloads are the expensive part; nothing else about yaz
 
 They need no network, no root and no particular platform: GitHub releases are local fixtures served over `file://` with the API call stubbed, and anything that writes writes into a throwaway `HOME`. That covers the download, SHA-256 check, extraction and install path for real.
 
-Four suites exist because of a way asset selection or a write can go wrong — an `arm64` host handed a `linux_arm` build, the last asset of every release silently dropped, a same-second backup collision that destroyed the only copy of an rc file, and keyword matching preferring FFmpeg's shared build and yazi's `gnu` build over the ones that actually run. Each has an assertion now, so a refactor cannot quietly reopen them.
+Five suites exist because of a way asset selection or a write can go wrong — an `arm64` host handed a `linux_arm` build, the last asset of every release silently dropped, a same-second backup collision that destroyed the only copy of an rc file, keyword matching preferring FFmpeg's shared build and yazi's `gnu` build over the ones that actually run, and a config file chosen from the platform instead of the login shell, which put an Amazon Linux cloud desktop's settings into a `~/.zshrc` that its `logbash` login never read. Each has an assertion now, so a refactor cannot quietly reopen them.
 
 What they cannot reach: macOS (Homebrew, and all of `iterm-tune`'s writing), Amazon Linux, the live GitHub API, and a real Neovim load. `tests/README.md` says so in full; CI repeats the same list rather than implying otherwise.
 
@@ -730,6 +755,12 @@ macOS users can also tune iTerm2's rendering settings. Look at the current state
 What it covers: GPU rendering is not disabled on battery, rendering favours throughput, transparency and blur are turned off, ligatures are turned off, and scrollback becomes bounded instead of unlimited. Trigger counts and background images are reported only, never modified.
 
 ## What changed in this release
+
+### The shell config file follows your login shell (fix)
+
+The file used to be chosen from the distribution alone, which is wrong whenever the two disagree. On an Amazon Linux cloud desktop — login shell `/usr/bin/logbash`, which is bash — every setting went into `~/.zshrc`, so nothing was ever read, and sourcing that file by hand printed a zsh syntax error for each of the four `eval` lines. zsh was installed too, for a file nothing would read.
+
+The login shell now decides, matched on the suffix so a wrapper like `logbash` counts as bash. A login shell that is neither bash nor zsh falls back to the platform default as before. The new [`--shell bash|zsh`](#--shell-bashzsh) overrides the detection, `--set-default-shell` implies zsh, and every run prints the file it chose together with the reason. If the other file still carries managed lines from an earlier run, the run points at them and leaves them alone.
 
 ### yazi and its preview backends (new, 47 → 54)
 

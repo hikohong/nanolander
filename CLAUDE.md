@@ -19,12 +19,16 @@ environment**. The promise is that a fresh box, whether it is the laptop in
 front of you or a bare EC2 instance you just SSH'd into, ends up with the same
 47 tools, the same shell behaviour and the same editor.
 
-| Platform | Package manager | Shell config target |
+| Platform | Package manager | Shell config target if the login shell is unrecognised |
 | --- | --- | --- |
 | macOS | Homebrew | `~/.zshrc` (+ `~/.zprofile`) |
 | Ubuntu | APT | `~/.bashrc` |
 | Amazon Linux 2 / older | YUM | `~/.zshrc` |
 | Amazon Linux 2023 | DNF | `~/.zshrc` |
+
+The package manager comes from the platform; **the rc file comes from the login
+shell**, since that is what decides which file is read. That column is only the
+fallback. See `resolve_shell_rc` below.
 
 Architectures: `x86_64`, `arm64` (full), `armv7` (most), `armv6` (partial).
 
@@ -140,7 +144,9 @@ verify → shell config → summary.
 
 | Function | Responsibility |
 | --- | --- |
-| `detect_environment` | `uname -s` + `/etc/os-release` → package manager, rc file; `uname -m` → arch keyword set |
+| `detect_environment` | `uname -s` + `/etc/os-release` → package manager and a *fallback* rc file; `uname -m` → arch keyword set |
+| `shell_kind_of` / `resolve_shell_rc` | the rc file the run actually writes. Precedence: `--shell` → `--set-default-shell` (implies zsh) → login shell → platform fallback. Suffix matching, so a wrapper counts (`logbash` is bash) |
+| `report_foreign_rc` | says when the *other* rc file still carries managed lines, and never touches it |
 | `wants_tool` / `list_contains` | `--only` / `--skip`, case- and whitespace-insensitive, command name or display name |
 | `print_tool_catalog` | `--list-tools`, reads `TOOL_CATALOG` |
 | `setup_homebrew` | macOS only; installs Homebrew non-interactively if missing. Fatal on failure |
@@ -250,9 +256,10 @@ Follow `bin/iterm-tune`:
 shellcheck -S style bin/* tests/*.sh   # must be silent
 ```
 
-`tests/README.md` lists what each suite covers. The three that exist because
+`tests/README.md` lists what each suite covers. The four that exist because
 of shipped bugs — the `linux_arm` mismatch, the dropped last asset, the
-same-second backup collision — are the ones to keep when refactoring.
+same-second backup collision, and an rc file chosen from the platform instead
+of the login shell — are the ones to keep when refactoring.
 
 The suites need no network, no root and no particular platform: `github_api`
 is overridden to emit a fixture and asset URLs point at `file://` paths, which

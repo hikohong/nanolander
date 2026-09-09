@@ -17,11 +17,12 @@ adds them up and exits non-zero if anything failed.
 | `test-preview-backends.sh` | yazi and the preview backends: pinned asset names, extra binaries, platform skips, compat links |
 | `test-nerd-font.sh` | family selection, monospaced-only rule, manifest |
 | `test-shell-config.sh` | backups, `--restore-shell`, `--uninstall` |
+| `test-shell-target.sh` | which rc file a run writes to, and why: login-shell detection, `--shell`, the `--set-default-shell` interaction, the foreign-file report |
 | `test-uninstall.sh` | manifest path guard across both font directories |
 | `test-nvim-land.sh` | `report` / `--apply` / `--restore` |
 | `test-iterm-tune.sh` | the settings tables and Nerd Font face names |
 
-Four of these exist because of a way asset selection or a write goes wrong:
+Five of these exist because of a way asset selection or a write goes wrong:
 
 - an `arm64` host was handed a `linux_arm` build, so `select_asset` matches a
   full suffix before it falls back to substring containment
@@ -35,6 +36,12 @@ Four of these exist because of a way asset selection or a write goes wrong:
   wants a newer glibc than Amazon Linux 2 has. Both are pinned by name in
   `github_asset_name`, and `test-preview-backends.sh` asserts that matching
   still picks the wrong one — that assertion is the reason the pin exists.
+- the shell config file was chosen from the distribution alone, so an Amazon
+  Linux cloud desktop had every setting written into `~/.zshrc` while its login
+  shell was `/usr/bin/logbash`. Nothing was ever read, and sourcing that file
+  by hand printed a zsh syntax error per `eval` line. `resolve_shell_rc` picks
+  from the login shell now, and `test-shell-target.sh` pins the `logbash` row
+  specifically — matching on the exact name instead of the suffix reopens it.
 
 Each has an assertion here now. Keep them.
 
@@ -54,11 +61,13 @@ Each has an assertion here now. Keep them.
   stubs, so the `brew update` that follows is the real one. It costs about
   twenty seconds and its failure is non-fatal, so it is left alone rather than
   worked around.
-- **Nothing platform-specific is assumed.** `detect_environment` sends macOS to
-  `~/.zshrc` and everything else to `~/.bashrc`, so the shell-config suite
-  picks the name rather than hard-coding it. Hard-coding `.bashrc` made that
-  suite assert against a file macOS never writes — it passed on Linux and
-  failed eight assertions on the macOS runner.
+- **Nothing platform-specific is assumed.** The rc file a run writes depends on
+  the *runner's own login shell*, so it is not something a suite can infer.
+  `test-shell-config.sh` passes `--shell bash` and asserts against `.bashrc`;
+  `test-shell-target.sh` fakes `current_login_shell` instead of using the real
+  one. Both readings of this went wrong before: hard-coding `.bashrc` made the
+  first suite assert against a file macOS never writes, and inferring it from
+  `uname` was still wrong for a Linux box whose owner logs into zsh.
 - **Nothing outside a throwaway `HOME`.** `temp_home` sets `TEST_HOME` and
   exports `HOME`; it does not print the path, because `H=$(temp_home)` would
   run the export in a subshell and leave the suite writing into the real home

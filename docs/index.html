@@ -208,12 +208,12 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
 <span class="p">$</span> cd nanolander
 <span class="p">$</span> ./bin/nanolander
 
-<span class="c"># load the new settings (Ubuntu uses ~/.bashrc)</span>
-<span class="p">$</span> source ~/.zshrc</pre>
+<span class="c"># load the new settings (the run prints which file it wrote)</span>
+<span class="p">$</span> source ~/.bashrc</pre>
 
     <h3>Supported platforms</h3>
     <table>
-      <thead><tr><th>Operating system</th><th>Package manager</th><th>Shell file</th></tr></thead>
+      <thead><tr><th>Operating system</th><th>Package manager</th><th>Shell file if the login shell is not recognised</th></tr></thead>
       <tbody>
         <tr><td>macOS</td><td><code>Homebrew</code></td><td><code>~/.zshrc</code> (plus <code>~/.zprofile</code>)</td></tr>
         <tr><td>Ubuntu</td><td><code>APT</code></td><td><code>~/.bashrc</code></td></tr>
@@ -221,6 +221,12 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
         <tr><td>Amazon Linux 2023</td><td><code>DNF</code></td><td><code>~/.zshrc</code></td></tr>
       </tbody>
     </table>
+    <p class="sub">The package manager comes from the platform, but the shell file comes from your
+    <strong>login shell</strong> — that is what decides which file is ever read. bash gets
+    <code>~/.bashrc</code>, zsh gets <code>~/.zshrc</code>, and a wrapper counts: an Amazon cloud
+    desktop logs you into <code>logbash</code>, which is bash. The column above is only the fallback
+    for a login shell that is neither, and <code>--shell bash|zsh</code> overrides all of it. Every
+    run prints the file it chose and the reason.</p>
     <table>
       <thead><tr><th>Architecture</th><th>Coverage</th></tr></thead>
       <tbody>
@@ -252,8 +258,13 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
         <div class="ex">./bin/nanolander --skip lazydocker,dive</div>
       </div>
       <div class="opt">
+        <kbd>--shell bash|zsh</kbd>
+        <p>Configure that shell rather than the one detected from your login shell. Use it when you log in as one shell and want the other set up, or run the script twice to configure both. Without it the target is decided strongest-first: <code>--shell</code>, then <code>--set-default-shell</code>, then your login shell, then the platform default.</p>
+        <div class="ex">./bin/nanolander --shell zsh</div>
+      </div>
+      <div class="opt">
         <kbd>--set-default-shell</kbd>
-        <p>On macOS and Amazon Linux, change the login shell to zsh. It does nothing if zsh is already the login shell, and Ubuntu keeps its bash setup.</p>
+        <p>On macOS and Amazon Linux, change the login shell to zsh. It does nothing if zsh is already the login shell, and Ubuntu keeps its bash setup. Because it makes zsh your login shell, the run targets <code>~/.zshrc</code> too — so <code>--shell bash</code> alongside it is refused as a contradiction.</p>
       </div>
       <div class="opt">
         <kbd>--with-aliases</kbd>
