@@ -21,8 +21,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ShellCheck ships on the GitHub-hosted Ubuntu image, so normally there
+      # is nothing to do. The apt fallback is for the day it stops shipping,
+      # and it tolerates a failed update: apt-get update exits 100 when any
+      # single repository on the runner is broken, and the image carries
+      # third-party ones this job has nothing to do with. A Chrome index with
+      # a hash mismatch took the whole job down with it.
       - name: Install ShellCheck
-        run: sudo apt-get update -qq && sudo apt-get install -y shellcheck
+        run: |
+          if command -v shellcheck >/dev/null 2>&1; then
+            shellcheck --version
+            exit 0
+          fi
+          sudo apt-get update -qq || true
+          sudo apt-get install -y shellcheck
 
       # -S style is stricter than the warning-level bar the README claims, and
       # the scripts are clean at it today. Any disable needs a comment saying why.
