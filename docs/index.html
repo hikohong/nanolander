@@ -176,7 +176,7 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
       </div>
 
       <div class="facts">
-        <div class="fact"><b>47</b><span>tools covering monitoring, Git, code navigation, containers, search, data, and network work</span></div>
+        <div class="fact"><b>54</b><span>tools covering monitoring, Git, code navigation, containers, file management, previews, data, and network work</span></div>
         <div class="fact"><b>4</b><span>operating systems, each mapped to brew, apt, dnf, or yum and the right shell file</span></div>
         <div class="fact"><b>3</b><span>CPU architectures fully covered: x86_64, arm64, armv7 (armv6 partially)</span></div>
         <div class="fact"><b>10</b><span>command-line options to install a subset, add aliases, set the Git pager, configure Neovim, or undo the whole run</span></div>
@@ -225,8 +225,8 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
       <thead><tr><th>Architecture</th><th>Coverage</th></tr></thead>
       <tbody>
         <tr><td><code>x86_64 / amd64</code></td><td><span class="pill p-ok">all tools</span></td></tr>
-        <tr><td><code>arm64 / aarch64</code></td><td><span class="pill p-ok">all tools</span> on macOS; on Linux all but Neovide, which upstream does not build for it</td></tr>
-        <tr><td><code>armv7</code></td><td><span class="pill p-warn">most tools</span> dive has no official armv7 build</td></tr>
+        <tr><td><code>arm64 / aarch64</code></td><td><span class="pill p-ok">all tools</span> on macOS; on Linux all but Neovide and resvg, which upstream builds for x86_64 only</td></tr>
+        <tr><td><code>armv7</code></td><td><span class="pill p-warn">most tools</span> dive and yazi have no official armv7 build</td></tr>
         <tr><td><code>armv6</code></td><td><span class="pill p-dim">some tools</span> pair it with <code>--only</code></td></tr>
       </tbody>
     </table>
@@ -291,7 +291,7 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
 
     <div class="filter">
       <input id="q" type="search" placeholder="Search tools or purpose…" aria-label="Search tools">
-      <span class="count" id="count">47 tools</span>
+      <span class="count" id="count">54 tools</span>
     </div>
 
     <div class="group" style="--c:#6fb2ff">
@@ -412,6 +412,9 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
     <div class="group" style="--c:#f2c14e">
       <h3>Files and search</h3>
       <div class="cards">
+        <div class="card"><span class="cmd">yazi</span><span class="nm">yazi</span>
+          <p>Terminal file manager with asynchronous I/O, so a directory of ten thousand files does not block it, and real image previews rather than ASCII approximations.</p>
+          <button class="run">yazi</button></div>
         <div class="card"><span class="cmd">eza</span><span class="nm">eza</span>
           <p>Modern ls replacement with colours, icons, tree view, and Git status.</p>
           <button class="run">eza -lah --git</button></div>
@@ -433,6 +436,30 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
         <div class="card"><span class="cmd">tree</span><span class="nm">tree</span>
           <p>Print a directory hierarchy as an indented tree.</p>
           <button class="run">tree -L 2</button></div>
+      </div>
+    </div>
+
+    <div class="group" style="--c:#c9a0ff">
+      <h3>File preview backends</h3>
+      <div class="cards">
+        <div class="card"><span class="cmd">file</span><span class="nm">file</span>
+          <p>MIME detection: how yazi decides which previewer a file needs in the first place. Already on every supported platform, so it usually reports existing.</p>
+          <button class="run">file -b --mime-type report.pdf</button></div>
+        <div class="card"><span class="cmd">ffmpeg</span><span class="nm">FFmpeg</span>
+          <p>Video and audio thumbnails, and the duration and dimensions beside them. ffprobe installs alongside it and is the half yazi actually calls.</p>
+          <button class="run">ffprobe -hide_banner clip.mp4</button></div>
+        <div class="card"><span class="cmd">pdftoppm</span><span class="nm">Poppler</span>
+          <p>Renders a PDF page to an image, so the preview pane shows the page rather than the words "PDF document".</p>
+          <button class="run">pdftoppm -png -f 1 -l 1 doc.pdf page</button></div>
+        <div class="card"><span class="cmd">7zz</span><span class="nm">7-Zip</span>
+          <p>Reads what is inside an archive without unpacking it, so Enter on a .zip lists its contents.</p>
+          <button class="run">7zz l archive.zip</button></div>
+        <div class="card"><span class="cmd">magick</span><span class="nm">ImageMagick</span>
+          <p>Converts the formats nothing else reads: HEIC, JPEG XL, font files.</p>
+          <button class="run">magick photo.heic photo.png</button></div>
+        <div class="card"><span class="cmd">resvg</span><span class="nm">resvg</span>
+          <p>Renders SVG properly rather than rasterising it badly. Published for macOS and x86_64 Linux only, so elsewhere it is SKIPPED.</p>
+          <button class="run">resvg logo.svg logo.png</button></div>
       </div>
     </div>
 
@@ -573,9 +600,11 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
       <div><h4>setup_homebrew</h4><p>macOS only. If brew is missing, it downloads the official installer, runs it non-interactively, and loads the matching <code>brew shellenv</code>.</p></div>
       <div><h4>The install_package family</h4><p>Wraps "is it in the repo", "is it already installed", and "install it" behind one interface, switching between apt-cache, dpkg-query, rpm, and brew underneath. <code>try_package_candidates</code> then walks the per-distro naming differences, such as fd-find versus fd, or tlrc versus tldr.</p></div>
       <div><h4>github_install</h4><p>The fallback for tools no repository carries: look up the latest release, match the asset for this architecture, verify the SHA-256 when GitHub publishes one, extract, and install into <code>~/.local/bin</code>. Asset matching prefers an exact suffix before falling back to a substring, so <code>linux_arm</code> never picks <code>linux_arm64</code>. Projects that name the binary differently inside the archive (yq) are renamed on the way in, bare executables (shfmt, direnv) skip extraction entirely, and Neovim keeps its full runtime tree behind a symlink. Set <code>GITHUB_TOKEN</code> to raise the API quota.</p></div>
-      <div><h4>tool_unsupported_here / ensure_tool</h4><p>The catalog is the same on all four platforms with one exception: Neovide is a GUI client and upstream builds it for macOS and x86_64 Linux only. Elsewhere there is nothing to install, so it is recorded as SKIPPED with the reason <code>platform</code> instead of being counted as a failure.</p></div>
-      <div><h4>make_compat_links</h4><p>Ubuntu and Debian ship these binaries as fdfind and batcat, so the script links them to fd and bat and keeps usage identical everywhere.</p></div>
-      <div><h4>command_works</h4><p>Presence is not enough: each tool has to answer a version query (<code>-V</code> for tmux, <code>-v</code> for unzip, <code>--version</code> for the rest; entr has no version flag, so presence on PATH is the check) before it is recorded as successful.</p></div>
+      <div><h4>github_asset_name</h4><p>Two projects publish more than one build per architecture, and keyword matching picks the wrong one for both, so their asset is named outright. yazi ships a gnu and a musl build of each target: the gnu one wants a newer glibc than Amazon Linux 2 has, so it installs and then cannot run. FFmpeg ships every target as <code>-gpl</code> and <code>-gpl-shared</code>, and containment finds the shared one first because it sorts earlier — its ffmpeg needs the archive's lib directory, which the install throws away. An upstream rename falls back to matching with a warning rather than failing.</p></div>
+      <div><h4>github_extras</h4><p>Some archives carry a second binary that is not optional. yazi ships <code>ya</code>, which is what runs <code>ya pkg</code> for plugins; FFmpeg ships <code>ffprobe</code>, which is the half yazi calls to read a video's dimensions. Both install alongside the catalog command and are recorded for <code>--uninstall</code>. A missing extra is a warning, not a failure.</p></div>
+      <div><h4>tool_unsupported_here / ensure_tool</h4><p>The catalog is the same on all four platforms with three exceptions. Neovide is a GUI client and resvg has one Linux target, so upstream builds both for macOS and x86_64 Linux only; yazi has no 32-bit ARM build anywhere. None of the three is in the Debian, Ubuntu, or Amazon Linux repositories either, so where there is genuinely nothing to fetch it is recorded as SKIPPED with the reason <code>platform</code> instead of being counted as a failure.</p></div>
+      <div><h4>make_compat_links</h4><p>Ubuntu and Debian ship these binaries as fdfind and batcat, the older p7zip packages call 7-Zip 7z rather than 7zz, and ImageMagick 6 has convert but no magick. The script links all four to the names everything else expects and keeps usage identical everywhere.</p></div>
+      <div><h4>command_works</h4><p>Presence is not enough: each tool has to answer a version query (<code>-V</code> for tmux, <code>-v</code> for unzip and pdftoppm, <code>-version</code> for ffmpeg, <code>--version</code> for the rest; entr and 7-Zip have no version flag, so presence on PATH is the check) before it is recorded as successful.</p></div>
       <div><h4>Installation summary</h4><p>Prints the status, source, and path for every tool, plus counts for successful, skipped, and failed.</p></div>
     </div>
   </section>
@@ -624,6 +653,7 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
       <li><b>Amazon Linux 2</b> — the repositories are old, so most modern tools arrive from GitHub releases in <code>~/.local/bin</code>. That is expected.</li>
       <li><b>armv6</b> — official release coverage is thin; tools without a matching build are reported as FAILED, so pair it with <code>--only</code>.</li>
       <li><b>Neovide on a server</b> — it is a GUI client and needs a desktop, so on a headless box there is nothing to display; <code>--skip neovide</code> keeps the summary tidy.</li>
+      <li><b>yazi shows boxes, not a picture</b> — the backends are installed but the terminal cannot draw an image. yazi uses the Kitty graphics protocol, iTerm2 inline images, or sixel; all three are escape sequences and so do travel over SSH, but it is the terminal on your own laptop that has to support them. Inside tmux add <code>set -g allow-passthrough on</code>. Ueberzug is the one adapter that cannot work remotely, because it needs a local display. <code>yazi --debug</code> reports what was detected.</li>
       <li><b>Configuring Neovim</b> — installing the binary does not configure it. Run <code>./bin/nvim-land</code> for a report, then <code>--apply</code>.</li>
       <li><b>Re-runs</b> — safe at any time. Installed tools show as existing and shell configuration is never added twice.</li>
     </ul>
@@ -631,7 +661,11 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
 
   <section id="changes">
     <h2>What changed</h2>
-    <p class="sub">The toolkit grew from 19 to 47, with install paths verified on all four operating systems and every supported architecture. The script itself now passes ShellCheck.</p>
+    <p class="sub">The toolkit grew from 19 to 54, with install paths verified on all four operating systems and every supported architecture. The script itself now passes ShellCheck.</p>
+    <p><b>New: yazi and its preview backends.</b> yazi joins the catalog as the file manager, with the six things it hands a file to when it cannot render it itself: file, FFmpeg, Poppler, 7-Zip, ImageMagick, and resvg. Two mechanisms came with them. <code>github_asset_name</code> pins the exact release asset for the two projects where keyword matching picks the wrong file — yazi's gnu build, which will not run on Amazon Linux 2, and FFmpeg's <code>-gpl-shared</code> build, whose binary needs a lib directory the install discards. <code>github_extras</code> installs the second binary an archive carries when it is not optional: ya with yazi, ffprobe with FFmpeg. <code>make_compat_links</code> gained two more links for the reason it had the first two: older p7zip packages call 7-Zip 7z, and ImageMagick 6 has convert but no magick.</p>
+    <div class="new">
+      <span>yazi</span><span>file</span><span>ffmpeg</span><span>pdftoppm</span><span>7zz</span><span>magick</span><span>resvg</span>
+    </div>
     <p><b>New: a Neovim configuration.</b> <code>bin/nvim-land</code> installs <code>share/nvim</code> into <code>~/.config/nvim</code> — your <code>~/.vimrc</code> and <code>~/.vim</code> sourced rather than copied, the two places Neovim differs from vim patched, and lazy.nvim bringing in treesitter, LSP, aerial, gitsigns, lualine, oil, and fzf-lua. It reports by default, backs up before writing, and <code>--restore</code> puts the previous tree back. Two tools joined the catalog for it: neovide and the tree-sitter CLI.</p>
     <div class="new">
       <span>bottom</span><span>git-delta</span><span>dive</span><span>sd</span><span>tree</span><span>duf</span><span>yq</span>
@@ -697,7 +731,7 @@ document.querySelectorAll('.card .run').forEach(function(btn){
       var any = g.querySelectorAll('.card:not([style*="none"])').length;
       g.style.display = any ? '' : 'none';
     });
-    count.textContent = t ? (n + ' matching') : '47 tools';
+    count.textContent = t ? (n + ' matching') : '54 tools';
   });
 })();
 

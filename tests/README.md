@@ -14,13 +14,14 @@ adds them up and exits non-zero if anything failed.
 | --- | --- |
 | `test-asset-selection.sh` | release-asset matching and `--only` / `--skip` |
 | `test-github-install.sh` | download, SHA-256, extraction, install, rc idempotency |
+| `test-preview-backends.sh` | yazi and the preview backends: pinned asset names, extra binaries, platform skips, compat links |
 | `test-nerd-font.sh` | family selection, monospaced-only rule, manifest |
 | `test-shell-config.sh` | backups, `--restore-shell`, `--uninstall` |
 | `test-uninstall.sh` | manifest path guard across both font directories |
 | `test-nvim-land.sh` | `report` / `--apply` / `--restore` |
 | `test-iterm-tune.sh` | the settings tables and Nerd Font face names |
 
-Three of these exist because of bugs that shipped:
+Four of these exist because of a way asset selection or a write goes wrong:
 
 - an `arm64` host was handed a `linux_arm` build, so `select_asset` matches a
   full suffix before it falls back to substring containment
@@ -29,6 +30,11 @@ Three of these exist because of bugs that shipped:
 - an install and a restore inside the same second produced the same backup
   filename, so the restore overwrote the only copy of the original rc file and
   then restored from it
+- keyword matching prefers FFmpeg's `-gpl-shared` build, whose binary cannot run
+  once the archive's `lib` directory is gone, and yazi's `gnu` build, which
+  wants a newer glibc than Amazon Linux 2 has. Both are pinned by name in
+  `github_asset_name`, and `test-preview-backends.sh` asserts that matching
+  still picks the wrong one — that assertion is the reason the pin exists.
 
 Each has an assertion here now. Keep them.
 
@@ -85,5 +91,11 @@ scripts without running them; that is how the internals are reachable.
   against fixtures shaped like the real ones, not against the real releases.
 - **Neovide on Linux**: it installs headless but cannot run without a desktop.
 - **A real Neovim load**: layers 1 and 2 need an actual `nvim`.
+- **yazi's image previews**: they need a terminal that speaks one of the
+  graphics protocols. `yazi --debug` on a real terminal is the only check, and
+  a headless runner cannot be one.
+- **`.tar.xz` extraction**: the FFmpeg and 7-Zip fixtures are `.tar.gz`, because
+  neither `xz` nor `zip` is guaranteed on a runner. The pinned names for those
+  two are asserted as data instead.
 
 Say so when reporting rather than implying these were tested.

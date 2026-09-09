@@ -81,6 +81,7 @@ tmux|tmux|Terminal environment|Terminal multiplexer; sessions survive an SSH dro
 starship|Starship|Terminal environment|Fast cross-shell prompt with git state, language versions and timing
 zoxide|zoxide|Terminal environment|Frecency-ranked cd replacement
 nerd-font|Nerd Font|Terminal environment|Patched font carrying the glyphs the Starship prompt and eza icons need
+yazi|yazi|File browsing & search|Terminal file manager with async I/O and real image previews
 eza|eza|File browsing & search|Modern ls with colors, icons, tree view and git status
 bat|bat|File browsing & search|cat with syntax highlighting and line numbers
 fd|fd|File browsing & search|Fast, friendly find replacement that respects .gitignore
@@ -88,6 +89,12 @@ rg|ripgrep|File browsing & search|Very fast recursive text search
 sd|sd|File browsing & search|Intuitive find-and-replace, simpler than sed -i
 fzf|fzf|File browsing & search|Fuzzy finder; wired to Ctrl-R for history and Ctrl-T for files
 tree|tree|File browsing & search|Indented tree view of a directory
+file|file|File preview backends|MIME detection, which is how yazi picks a previewer
+ffmpeg|FFmpeg|File preview backends|Video and audio thumbnails and metadata (ffprobe comes with it)
+pdftoppm|Poppler|File preview backends|Renders a PDF page to an image so it can be previewed
+7zz|7-Zip|File preview backends|Reads inside an archive without unpacking it
+magick|ImageMagick|File preview backends|Converts HEIC, JPEG XL and font files into something previewable
+resvg|resvg|File preview backends|Renders SVG; macOS and x86_64 Linux only, see --list-tools notes
 dust|dust|Disk & space|Visual du that points straight at the biggest directories
 duf|duf|Disk & space|Readable df with a table and usage bars
 ncdu|ncdu|Disk & space|Interactive disk usage browser that can delete in place
@@ -227,8 +234,10 @@ print_tool_catalog() {
 $TOOL_CATALOG
 CATALOG
   printf '\nFilter with --only or --skip using either column, e.g. --only rg,ripgrep\n'
-  printf 'Every tool lands on all four platforms except Neovide, a GUI client that\n'
-  printf 'upstream builds for macOS and x86_64 Linux only; elsewhere it is SKIPPED.\n'
+  printf 'Every tool lands on all four platforms except three: Neovide and resvg are\n'
+  printf 'published for macOS and x86_64 Linux only, and yazi has no 32-bit ARM build\n'
+  printf 'anywhere. Where there is nothing to fetch the tool is SKIPPED, not FAILED.\n'
+  printf 'The preview backends exist for yazi; each is useful on its own too.\n'
   printf 'Neovim configuration is a separate step: ./bin/nvim-land\n'
 }
 
@@ -595,6 +604,7 @@ pkg_candidates() {
     starship)   printf 'starship' ;;
     zoxide)     printf 'zoxide' ;;
     nerd-font)  printf '' ;;   # same upstream release on every platform
+    yazi)       printf 'yazi' ;;
     eza)        printf 'eza' ;;
     bat)        printf 'bat' ;;
     fd)         printf 'fd fd-find' ;;
@@ -602,6 +612,16 @@ pkg_candidates() {
     sd)         printf 'sd sd-find-replace' ;;
     fzf)        printf 'fzf' ;;
     tree)       printf 'tree' ;;
+    # Homebrew cannot have a formula called file, so its name is file-formula.
+    file)       printf 'file file-formula' ;;
+    # Amazon Linux 2023 carries the patent-free rebuild under its own name.
+    ffmpeg)     printf 'ffmpeg ffmpeg-free' ;;
+    pdftoppm)   printf 'poppler poppler-utils' ;;
+    # brew's sevenzip and Ubuntu's 7zip give 7zz; the older p7zip packages give
+    # 7z instead, which make_compat_links then links to 7zz.
+    7zz)        printf 'sevenzip 7zip p7zip p7zip-plugins p7zip-full' ;;
+    magick)     printf 'imagemagick ImageMagick' ;;
+    resvg)      printf 'resvg' ;;
     dust)       printf 'dust du-dust' ;;
     duf)        printf 'duf' ;;
     ncdu)       printf 'ncdu' ;;
@@ -645,8 +665,9 @@ try_package_candidates() {
 
 # ---------------------------------------------------------------------------
 # github_repo — the upstream project for tools the repositories often lack.
-# An empty result means "package manager only"; tig, cscope, entr and ctags
-# publish no cross-platform binaries at all.
+# An empty result means "package manager only": tig, cscope, entr and ctags
+# publish no cross-platform binaries at all, and neither do Poppler,
+# ImageMagick or file, which every supported distribution does package.
 # ---------------------------------------------------------------------------
 github_repo() {
   case "$1" in
@@ -668,6 +689,10 @@ github_repo() {
     tree-sitter) printf 'tree-sitter/tree-sitter' ;;
     starship)   printf 'starship/starship' ;;
     zoxide)     printf 'ajeetdsouza/zoxide' ;;
+    yazi)       printf 'sxyazi/yazi' ;;
+    ffmpeg)     printf 'BtbN/FFmpeg-Builds' ;;
+    7zz)        printf 'ip7z/7zip' ;;
+    resvg)      printf 'linebender/resvg' ;;
     eza)        printf 'eza-community/eza' ;;
     bat)        printf 'sharkdp/bat' ;;
     fd)         printf 'sharkdp/fd' ;;
@@ -684,6 +709,54 @@ github_repo() {
     gping)      printf 'orf/gping' ;;
     hyperfine)  printf 'sharkdp/hyperfine' ;;
     *)          printf '' ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# github_asset_name — the exact release asset to take on Linux, for the two
+# projects where keyword matching picks the wrong file. An empty result means
+# "let select_asset decide", which is the case for everything else.
+#
+# yazi: upstream ships a gnu and a musl build of each target. The gnu one is
+# linked against a newer glibc than Amazon Linux 2 has, so it installs and then
+# cannot run; the musl one is static and runs on all four platforms.
+#
+# FFmpeg-Builds: every target comes as -gpl and -gpl-shared, and containment
+# finds the shared one first because it sorts earlier. Its ffmpeg needs the
+# archive's lib directory, which we throw away, so it would install a binary
+# that dies on its first invocation.
+#
+# macOS is not listed: there every tool comes from Homebrew and the release
+# path is never reached.
+# ---------------------------------------------------------------------------
+github_asset_name() {
+  [ "$OS_KIND" = "macos" ] && return 0
+  case "$1" in
+    yazi)
+      case "$ARCH" in
+        arm64)  printf 'yazi-aarch64-unknown-linux-musl.zip' ;;
+        x86_64) printf 'yazi-x86_64-unknown-linux-musl.zip' ;;
+      esac ;;
+    ffmpeg)
+      case "$ARCH" in
+        arm64)  printf 'ffmpeg-master-latest-linuxarm64-gpl.tar.xz' ;;
+        x86_64) printf 'ffmpeg-master-latest-linux64-gpl.tar.xz' ;;
+      esac ;;
+  esac
+  return 0
+}
+
+# github_extras — further binaries to take out of the same archive, because the
+# catalog command on its own is only half the tool.
+#
+# yazi ships `ya`, which is what runs `ya pkg` for plugins and `ya emit` for the
+# shell integration. FFmpeg ships ffprobe, and ffprobe is the half yazi
+# actually calls to read a video's dimensions and duration.
+github_extras() {
+  case "$1" in
+    yazi)   printf 'ya' ;;
+    ffmpeg) printf 'ffprobe' ;;
+    *)      printf '' ;;
   esac
 }
 
@@ -826,6 +899,13 @@ extract_archive() {
       ;;
     *.tar.gz|*.tgz)
       tar -xf "$file" -C "$dest" ;;
+    *.tar.xz|*.txz)
+      # GNU tar shells out to xz, which a minimal image may not carry. Say so
+      # rather than reporting an unexplained extraction failure.
+      if ! tar -xf "$file" -C "$dest"; then
+        warn "Could not unpack $(basename "$file"); xz may be missing (install xz or xz-utils)."
+        return 1
+      fi ;;
     *.gz)
       # A lone gzipped binary, as some projects publish instead of a tarball.
       gunzip -c "$file" > "$dest/$(basename "${file%.gz}")" ;;
@@ -867,7 +947,7 @@ install_neovim_tree() {
 
 github_install() {
   local cmd="$1" repo="$2"
-  local json assets tmp file actual payload
+  local json assets tmp file actual payload want extra extra_payload
 
   [ -n "$repo" ] || return 1
   command -v curl >/dev/null 2>&1 || { warn "curl is required for GitHub release installs."; return 1; }
@@ -884,7 +964,15 @@ github_install() {
     return 1
   fi
 
-  if ! select_asset "$assets"; then
+  # An exact name wins where keyword matching is known to pick the wrong file.
+  # If upstream ever renames that asset, fall back to matching rather than
+  # failing outright.
+  want=$(github_asset_name "$cmd")
+  if [ -n "$want" ] && ! select_named_asset "$assets" "$want"; then
+    warn "$repo no longer publishes $want; falling back to keyword matching."
+    want=""
+  fi
+  if [ -z "$want" ] && ! select_asset "$assets"; then
     warn "No $repo asset matches $OS_KIND/$ARCH."
     return 1
   fi
@@ -956,6 +1044,23 @@ github_install() {
   if ! install -m 0755 "$payload" "$LOCAL_BIN/$cmd" 2>/dev/null; then
     cp "$payload" "$LOCAL_BIN/$cmd" && chmod 0755 "$LOCAL_BIN/$cmd"
   fi
+
+  # A missing extra is a warning, not a failure: the catalog command is there
+  # and works, and that is what the summary reports on.
+  for extra in $(github_extras "$cmd"); do
+    if ! extra_payload=$(find_payload "$tmp/x" "$extra"); then
+      warn "No $extra alongside $cmd in the $repo archive."
+      continue
+    fi
+    if ! install -m 0755 "$extra_payload" "$LOCAL_BIN/$extra" 2>/dev/null; then
+      cp "$extra_payload" "$LOCAL_BIN/$extra" && chmod 0755 "$LOCAL_BIN/$extra"
+    fi
+    if [ -x "$LOCAL_BIN/$extra" ]; then
+      record_installed "$LOCAL_BIN/$extra"
+      ok "Installed $extra alongside $cmd."
+    fi
+  done
+
   rm -rf "$tmp"
 
   if [ -x "$LOCAL_BIN/$cmd" ]; then
@@ -1143,7 +1248,10 @@ ensure_nerd_font() {
 
 # ---------------------------------------------------------------------------
 # make_compat_links — Debian and Ubuntu ship fd as fdfind and bat as batcat.
-# Linking them under the upstream names keeps muscle memory portable.
+# Linking them under the upstream names keeps muscle memory portable. The same
+# problem turns up twice more among the preview backends: the older p7zip
+# packages call the binary 7z rather than 7zz, and ImageMagick 6 — still what
+# Ubuntu and Amazon Linux package — has convert but no magick.
 # ---------------------------------------------------------------------------
 make_compat_links() {
   mkdir -p "$LOCAL_BIN"
@@ -1157,12 +1265,26 @@ make_compat_links() {
     record_installed "$LOCAL_BIN/bat"
     ok "Linked batcat to $LOCAL_BIN/bat"
   fi
+  if ! command -v 7zz >/dev/null 2>&1 && command -v 7z >/dev/null 2>&1; then
+    ln -sf "$(command -v 7z)" "$LOCAL_BIN/7zz"
+    record_installed "$LOCAL_BIN/7zz"
+    ok "Linked 7z to $LOCAL_BIN/7zz"
+  fi
+  # ImageMagick 6's convert takes the same "convert in out" form the previewers
+  # use, so the link is enough for them. It is not a general IM7 substitute.
+  if ! command -v magick >/dev/null 2>&1 && command -v convert >/dev/null 2>&1; then
+    ln -sf "$(command -v convert)" "$LOCAL_BIN/magick"
+    record_installed "$LOCAL_BIN/magick"
+    ok "Linked ImageMagick 6's convert to $LOCAL_BIN/magick"
+  fi
 }
 
 # ---------------------------------------------------------------------------
 # command_works — presence on PATH is not proof, so run the version query.
-# tmux uses -V, unzip uses -v, cscope uses -V, and entr has no version flag
-# at all, so for entr being on PATH is the test.
+# tmux uses -V, unzip uses -v, cscope uses -V, pdftoppm uses -v and rejects
+# --version, and ffmpeg's own spelling is -version. entr and 7-Zip have no
+# version flag at all — a bare 7zz prints its banner and then a usage screen —
+# so for those two being on PATH is the test.
 # ---------------------------------------------------------------------------
 command_works() {
   local cmd="$1"
@@ -1170,10 +1292,12 @@ command_works() {
   [ "$cmd" = "nerd-font" ] && { nerd_font_installed; return $?; }
   command -v "$cmd" >/dev/null 2>&1 || return 1
   case "$cmd" in
-    entr)          return 0 ;;
+    entr|7zz)      return 0 ;;
     tmux)          tmux -V >/dev/null 2>&1 ;;
     unzip)         unzip -v >/dev/null 2>&1 ;;
     cscope)        cscope -V >/dev/null 2>&1 ;;
+    pdftoppm)      pdftoppm -v >/dev/null 2>&1 ;;
+    ffmpeg)        ffmpeg -version >/dev/null 2>&1 ;;
     *)             "$cmd" --version >/dev/null 2>&1 ;;
   esac
 }
@@ -1294,16 +1418,27 @@ ensure_brew_tool() {
 
 # ---------------------------------------------------------------------------
 # tool_unsupported_here — the catalog is deliberately identical on all four
-# platforms, with one exception: Neovide is a GUI client, and upstream ships
-# macOS and x86_64 Linux builds only. On a Graviton instance or a Raspberry Pi
-# there is nothing to install, and calling that a failure would be wrong.
+# platforms, with the exceptions below. Where upstream publishes nothing and no
+# distribution packages the tool either, there is genuinely nothing to install,
+# and calling that a failure would be wrong.
 # ---------------------------------------------------------------------------
 tool_unsupported_here() {
   case "$1" in
-    neovide)
+    neovide|resvg)
+      # Both exist for macOS and x86_64 Linux only — Neovide because it is a
+      # GUI client, resvg because upstream builds a single Linux target — and
+      # neither is in the Debian, Ubuntu or Amazon Linux repositories. So on a
+      # Graviton instance or a Raspberry Pi there is nothing to fetch.
       [ "$OS_KIND" = "macos" ] && return 1
       [ "$ARCH" = "x86_64" ] && return 1
       return 0 ;;
+    yazi)
+      # Upstream builds x86_64 and aarch64; no distribution packages yazi on
+      # 32-bit ARM, so armv7 and armv6 have no route to it at all.
+      case "$ARCH" in
+        armv7|armv6) return 0 ;;
+      esac
+      return 1 ;;
     *) return 1 ;;
   esac
 }
@@ -1821,6 +1956,32 @@ RESULTS_EOF
   info "Failed: $COUNT_FAILED"
 }
 
+# tool_succeeded — did this catalog entry end the run as a SUCCESS?
+tool_succeeded() {
+  printf '%s\n' "$RESULTS" | grep -q "^$1|SUCCESS|"
+}
+
+# report_preview_notes — installing the backends cannot make a terminal draw an
+# image, for the same reason installing the font cannot select it: that decision
+# belongs to the terminal, and for a remote box it belongs to the terminal on
+# the user's own laptop. Say so rather than implying previews now just work.
+report_preview_notes() {
+  tool_succeeded yazi || return 0
+  section "yazi image previews"
+  info "yazi draws images with the Kitty graphics protocol, iTerm2 inline images"
+  info "or sixel. All three are escape sequences, so they do travel over SSH — but"
+  info "it is the terminal you are sitting in front of that has to support them,"
+  info "not this machine. Ueberzug is the one adapter that cannot work remotely,"
+  info "because it needs a local display to put its window on."
+  info "See what was detected here with: yazi --debug"
+  if command_works tmux; then
+    info "Inside tmux, graphics need one line in ~/.tmux.conf:"
+    printf '    set -g allow-passthrough on\n'
+  fi
+  info "Over SSH, TERM_PROGRAM is not forwarded by default; add it to ~/.ssh/config"
+  info "with SetEnv if yazi reports no image adapter."
+}
+
 print_next_steps() {
   section "Next steps"
   info "Reload your shell configuration:"
@@ -1866,6 +2027,7 @@ run_all() {
   [ "$OPT_WITH_NVIM_CONFIG" -eq 1 ] && install_nvim_config
 
   print_summary
+  report_preview_notes
 
   if [ "$COUNT_FAILED" -gt 0 ]; then
     warn "$COUNT_FAILED tool(s) failed. Search the log for '== Installing <name> ==' to see why."
