@@ -31,21 +31,32 @@ chmod +x "$NVIM_STUB/nvim"
 LINK="$H/bin"; mkdir -p "$LINK"
 ln -sf "$REPO_ROOT/bin/nanolander" "$LINK/nanolander"
 
-out=$(PATH="$NVIM_STUB:$PATH" "$LINK/nanolander" --only git --with-nvim-config 2>&1)
+out=$(PATH="$NVIM_STUB:$PATH" "$LINK/nanolander" --only git --with-nvim-config 2>&1); rc=$?
+chk "the whole run exits 0"            "$rc" "0"
 chk "handoff survives a symlinked \$0" "$(printf '%s' "$out" | grep -c 'bin/nvim-land --apply')" "1"
 chk "helper is not reported missing"   "$(printf '%s' "$out" | grep -c 'Cannot find bin/nvim-land')" "0"
 chk "the config actually lands"        "$(exists "$H/.config/nvim/init.vim")" "y"
 chk "and the run still succeeds"       "$(printf '%s' "$out" | grep -c 'Neovim configuration installed')" "1"
 
 # Without Neovim there is nothing to configure, and that is a warning rather
-# than a failure of the whole run. NVIM_STUB is deliberately not on PATH here —
-# and neither is the real one, which a machine that has landed the toolkit has.
+# than a stop. NVIM_STUB is deliberately not on PATH here — and neither is the
+# real one, which a machine that has landed the toolkit has.
+#
+# This calls the function rather than running the whole script, because on
+# macOS the whole script cannot reach this branch: setup_homebrew ends in
+# `eval "$(brew shellenv)"`, which puts /opt/homebrew/bin back on PATH and with
+# it the very nvim that has to be missing. The assertion held on a Linux runner
+# and could not hold on a Mac that had landed the toolkit — the machine the
+# toolkit is for. `bash -c '...' <path>` makes $0 the script, which is what
+# script_dir reads to find bin/nvim-land beside it.
 H2=$(mktemp -d)
-out=$(HOME="$H2" XDG_CONFIG_HOME="$H2/.config" XDG_DATA_HOME="$H2/.local/share" \
-  PATH="$(path_without nvim)" \
-  "$REPO_ROOT/bin/nanolander" --only git --with-nvim-config 2>&1)
+out=$(NANOLANDER_LIB=1 HOME="$H2" XDG_CONFIG_HOME="$H2/.config" \
+  XDG_DATA_HOME="$H2/.local/share" PATH="$(path_without nvim)" \
+  bash -c '. "$0"; install_nvim_config; printf "rc=%s\\n" "$?"' \
+  "$REPO_ROOT/bin/nanolander" 2>&1)
 chk "no nvim is a warning, not a stop" "$(printf '%s' "$out" | grep -c 'Neovim is not installed, so there is no configuration')" "1"
-chk "the tool run still exits 0"       "$?" "0"
+chk "the helper is not blamed"         "$(printf '%s' "$out" | grep -c 'Cannot find bin/nvim-land')" "0"
+chk "and it reports that it skipped"   "$(printf '%s' "$out" | grep -c '^rc=1$')" "1"
 rm -rf "$H2"
 
 # Layer 2 has no call graph to offer. grep answers c and d with the same word
