@@ -44,6 +44,24 @@ chk "strip .tar.gz"        "$(strip_archive_ext a-b.tar.gz)" "a-b"
 chk "strip .tbz"           "$(strip_archive_ext btop-x86_64-linux-musl.tbz)" "btop-x86_64-linux-musl"
 chk "bare binary untouched" "$(strip_archive_ext yq_linux_amd64)" "yq_linux_amd64"
 
+# Neovide publishes an uncompressed .tar. Missing from is_archive, the tarball
+# itself was installed as the binary and died with an exec format error.
+chk "strip .tar"           "$(strip_archive_ext neovide-linux-x86_64.tar)" "neovide-linux-x86_64"
+chk ".tar is an archive"   "$(yn is_archive neovide-linux-x86_64.tar)" "y"
+chk ".tar.gz is an archive" "$(yn is_archive t.tar.gz)" "y"
+chk "a bare binary is not" "$(yn is_archive direnv.linux-amd64)" "n"
+
+# gping's gnu build wants a glibc newer than Amazon Linux 2023 carries, so the
+# static musl build is pinned by name for every Linux architecture.
+OS_KIND="ubuntu"
+chk "gping is pinned to musl on x86_64" \
+  "$(ARCH=x86_64; github_asset_name gping)" "gping-Linux-musl-x86_64.tar.gz"
+chk "gping is pinned to musl on arm64" \
+  "$(ARCH=arm64; github_asset_name gping)" "gping-Linux-musl-arm64.tar.gz"
+chk "gping is pinned to musl on armv7" \
+  "$(ARCH=armv7; github_asset_name gping)" "gping-Linux-musleabihf-armv7.tar.gz"
+chk "no gping override on macOS" "$(OS_KIND=macos; github_asset_name gping)" ""
+
 # The last asset of a release used to be dropped: tr leaves no trailing
 # newline on the final chunk and read discards it.
 J='{"assets":[{"name":"a","digest":"sha256:aaa","browser_download_url":"https://x/a.tar.gz"},{"name":"b","browser_download_url":"https://x/b.tar.gz","digest":"sha256:bbb"}]}'

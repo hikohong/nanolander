@@ -115,12 +115,14 @@ chk "7zz is verified by presence"   "$(PATH="$STUB:$PATH"; yn command_works 7zz)
 chk "pdftoppm is verified with -v"  "$(PATH="$STUB:$PATH"; yn command_works pdftoppm)" "y"
 chk "ffmpeg is verified with -version" "$(PATH="$STUB:$PATH"; yn command_works ffmpeg)" "y"
 
-# Older p7zip calls it 7z, and ImageMagick 6 has convert but no magick.
+# Older p7zip calls it 7z, and ImageMagick 6 has convert but no magick. The
+# link is only made when the modern name is missing, so the host's own 7zz and
+# magick have to be off PATH or there is nothing for this to assert.
 LINKS="$W/links"; mkdir -p "$LINKS"
 printf '#!/bin/sh\necho 7z 16.02\n' > "$LINKS/7z"
 printf '#!/bin/sh\necho convert IM6\n' > "$LINKS/convert"
 chmod +x "$LINKS/7z" "$LINKS/convert"
-( PATH="$LINKS:$PATH"; make_compat_links >/dev/null 2>&1 )
+( PATH="$LINKS:$(path_without 7zz magick)"; make_compat_links >/dev/null 2>&1 )
 chk "7z is linked to 7zz"         "$("$LOCAL_BIN/7zz" 2>/dev/null)" "7z 16.02"
 chk "convert is linked to magick" "$("$LOCAL_BIN/magick" 2>/dev/null)" "convert IM6"
 

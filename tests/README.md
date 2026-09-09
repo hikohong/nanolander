@@ -21,8 +21,11 @@ adds them up and exits non-zero if anything failed.
 | `test-uninstall.sh` | manifest path guard across both font directories |
 | `test-nvim-land.sh` | `report` / `--apply` / `--restore` |
 | `test-iterm-tune.sh` | the settings tables and Nerd Font face names |
+| `test-install-loop.sh` | `install_all_tools` reaches every catalog entry even when a tool drains stdin |
+| `test-payload-pick.sh` | which file inside an archive gets installed, and whether a version query proves anything |
 
-Five of these exist because of a way asset selection or a write goes wrong:
+Seven of these exist because of a way asset selection, a write, or a run goes
+wrong:
 
 - an `arm64` host was handed a `linux_arm` build, so `select_asset` matches a
   full suffix before it falls back to substring containment
@@ -42,6 +45,23 @@ Five of these exist because of a way asset selection or a write goes wrong:
   by hand printed a zsh syntax error per `eval` line. `resolve_shell_rc` picks
   from the login shell now, and `test-shell-target.sh` pins the `logbash` row
   specifically — matching on the exact name instead of the suffix reopens it.
+- the whole run stopped after the first tool it installed. `install_all_tools`
+  fed the catalog in on stdin, and dnf reads stdin to ask about importing a
+  repository GPG key, so that one install swallowed every remaining catalog
+  line. The loop ended, and the summary said the run succeeded because each
+  tool it had reached did pass. Six runs on one Amazon Linux 2023 box landed
+  seven of the fifty-four tools, one more each time. The catalog goes in on
+  descriptor 3 now, and `test-install-loop.sh` stubs a tool that drains stdin
+  exactly as dnf does.
+- a bash-completion script was installed as `~/.local/bin/fastfetch` and passed
+  verification. The release tarball holds two files named `fastfetch` —
+  `usr/bin/fastfetch` and one under `usr/share/bash-completion` — and
+  `find_payload` took whichever `find` listed first, which is readdir order and
+  so differs by machine. `command_works` then ran it: sourcing a completion
+  script exits 0 in silence, and exit status was the whole test. `find_payload`
+  prefers an executable now and `command_works` requires the version query to
+  print something; `test-payload-pick.sh` covers both halves, because either
+  one alone still lets a broken install through.
 
 Each has an assertion here now. Keep them.
 

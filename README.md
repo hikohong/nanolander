@@ -279,7 +279,7 @@ Each entry comes with its purpose and a one-line command to get started.
 | Tool | Command | What it does, and an example |
 | --- | --- | --- |
 | **Neovim** | `nvim` | Modern Vim fork with Lua config and LSP support, installed as the default terminal editor.<br>`nvim file.py` |
-| **Neovide** | `neovide` | GUI Neovim client with smooth cursor animation and ligature support, reading the same configuration as the terminal one. Upstream builds it for macOS and `x86_64` Linux only, so elsewhere it is reported `SKIPPED`, not failed.<br>`neovide` |
+| **Neovide** | `neovide` | GUI Neovim client with smooth cursor animation and ligature support, reading the same configuration as the terminal one. Upstream builds it for macOS and `x86_64` Linux only, and that one Linux build needs glibc 2.35, so on other architectures and on Amazon Linux it is reported `SKIPPED`, not failed.<br>`neovide` |
 | **tmux** | `tmux` | Terminal multiplexer for persistent sessions and splits, so a dropped SSH connection doesn't kill your work.<br>`tmux new -s dev` |
 | **Starship** | `starship` | Fast cross-shell prompt showing Git state, language versions and run times. Enabled automatically.<br>`starship preset nerd-font-symbols` |
 | **zoxide** | `zoxide` | A `cd` that remembers where you go, so a fragment of a path is enough to jump there.<br>`z proj` (`z` comes from the shell integration) |
@@ -309,7 +309,7 @@ yazi renders text, code and common raster images itself. Everything else it hand
 | **Poppler** | `pdftoppm` | Renders a PDF page to an image, so the preview pane shows the page rather than the words "PDF document".<br>`pdftoppm -png -f 1 -l 1 doc.pdf page` |
 | **7-Zip** | `7zz` | Reads the contents of an archive without unpacking it, so `Enter` on a `.zip` lists what is inside.<br>`7zz l archive.zip` |
 | **ImageMagick** | `magick` | Converts the formats nothing else reads — HEIC, JPEG XL, font files.<br>`magick photo.heic photo.png` |
-| **resvg** | `resvg` | Renders SVG properly, rather than rasterising it badly. Upstream publishes macOS builds and one Linux build, `x86_64` only, and no distribution packages it, so elsewhere it is `SKIPPED`.<br>`resvg logo.svg logo.png` |
+| **resvg** | `resvg` | Renders SVG properly, rather than rasterising it badly. Upstream publishes macOS builds and one Linux build, `x86_64` only and needing glibc 2.35, and no distribution packages it, so on other architectures and on Amazon Linux it is `SKIPPED`.<br>`resvg logo.svg logo.png` |
 
 > `file` is already on every supported platform, so it normally reports `existing`. The others come from the package manager where it has them — including Amazon Linux 2023's `ffmpeg-free` — and from the project's release otherwise.
 
@@ -463,11 +463,12 @@ Setting the `GITHUB_TOKEN` environment variable adds an authentication header, w
 
 ### `github_asset_name`
 
-Two projects publish more than one build per architecture, and for both of them keyword matching picks the wrong one, so their asset is named outright:
+Three projects publish more than one build per architecture, and for all three keyword matching picks the wrong one, so their asset is named outright:
 
 | Tool | Why matching gets it wrong |
 | --- | --- |
 | yazi | Upstream ships a `gnu` and a `musl` build of each target. The `gnu` one wants a newer glibc than Amazon Linux 2 has, so it installs and then cannot run. The `musl` one is static and runs everywhere. |
+| gping | The same, one release later: the `gnu` build wants glibc 2.39 against the 2.34 Amazon Linux 2023 carries. The `musl` build is taken on every Linux architecture rather than only where the mismatch shows up. |
 | FFmpeg | Every target comes as `-gpl` and `-gpl-shared`, and containment finds the shared one first because it sorts earlier. Its `ffmpeg` needs the archive's `lib` directory, which the install throws away. |
 
 If upstream ever renames one of those files, the run says so and falls back to keyword matching rather than failing.
@@ -478,7 +479,14 @@ Some archives carry a second binary that is not optional. yazi ships `ya`, which
 
 ### `tool_unsupported_here` / `ensure_tool`
 
-The catalog is deliberately the same on all four platforms, with three exceptions. Neovide is a GUI client and resvg has a single Linux target, so upstream builds both for macOS and `x86_64` Linux only; yazi has no 32-bit ARM build anywhere. None of the three is in the Debian, Ubuntu or Amazon Linux repositories either, so on a Graviton instance or a Raspberry Pi there is genuinely nothing to fetch. Those are recorded `SKIPPED` with the reason `platform` rather than counted as failures. `ensure_tool` is the wrapper that makes that decision before choosing the Homebrew or the Linux path.
+The catalog is deliberately the same on all four platforms, with three exceptions known in advance. Neovide is a GUI client and resvg has a single Linux target, so upstream builds both for macOS and `x86_64` Linux only; yazi has no 32-bit ARM build anywhere. None of the three is in the Debian, Ubuntu or Amazon Linux repositories either, so on a Graviton instance or a Raspberry Pi there is genuinely nothing to fetch. Those are recorded `SKIPPED` with the reason `platform` rather than counted as failures. `ensure_tool` is the wrapper that makes that decision before choosing the Homebrew or the Linux path.
+
+Two more gaps can only be found by trying, because they depend on what the machine in front of you happens to have, and both end up in the same `SKIPPED (platform)` row:
+
+- **The build needs a newer glibc than the system has.** Amazon Linux 2023 is on glibc 2.34, and the only Linux binaries tree-sitter, resvg and Neovide publish want 2.39, 2.35 and 2.35. The loader refuses them before `main` runs, so the install is fine and the tool still cannot work. The unusable binary is deleted rather than left on `PATH` — a half-working `tree-sitter` makes Neovim's parser build fail in a way that points nowhere near the real cause.
+- **Neither the distribution nor upstream has it.** `entr` and `ncdu` publish no cross-platform binaries and Amazon Linux packages neither, so there was never anything to attempt. A package install that *ran* and failed is still a `FAILED` row: that is a problem to look at, not a platform without the tool.
+
+Where a static musl build exists, it is pinned by name instead — see [`github_asset_name`](#github_asset_name). That is why yazi and `gping` work on Amazon Linux while tree-sitter and resvg cannot.
 
 ### `make_compat_links`
 
@@ -498,7 +506,7 @@ Before writing to a config file the script always compares the whole line, so re
 
 ### Installation summary
 
-At the end the script prints a table showing each tool, its status (`SUCCESS` / `FAILED` / `SKIPPED`), its source (`existing`, `package manager`, `GitHub release`, `filter`) and its path, followed by counts of successes, skips and failures.
+At the end the script prints a table showing each tool, its status (`SUCCESS` / `FAILED` / `SKIPPED`), its source (`existing`, `package manager`, `GitHub release`, `filter`, `platform`) and its path, followed by four counts: successes, tools skipped by `--only` / `--skip`, tools with no build for this platform, and failures. The last two used to share a counter, which meant a run with no filter at all could report `Skipped by filter: 5`.
 
 ---
 
@@ -706,7 +714,7 @@ When an install fails, search the log by tool name to find the relevant section,
   ```
 
 - **Docker tools**: `lazydocker` and `dive` need a working local Docker to be useful. On machines without it, use `--skip lazydocker,dive`.
-- **Repository-only tools**: `tig`, `cscope`, `entr` and `ctags` have no official cross-platform binaries and can only come from a distribution package, and so do Poppler, ImageMagick and `file`, which every supported distribution carries. Amazon Linux 2023 does not include EPEL, so some of these may come out as `FAILED`; either exclude them with `--skip tig,cscope,entr` or enable EPEL yourself and run again.
+- **Repository-only tools**: `tig`, `cscope`, `entr` and `ctags` have no official cross-platform binaries and can only come from a distribution package, and so do Poppler, ImageMagick and `file`, which every supported distribution carries. Amazon Linux 2023 does not include EPEL, so some of these are not packaged there at all — `entr` and `ncdu` are the two on a stock image. Those come out as `SKIPPED (platform)`, because nothing was ever attempted and nothing a re-run does would change that. Enable EPEL yourself and run again if you want them. A package install that *ran* and failed is a `FAILED` row instead, which is the case worth reading the log over.
 - **Boxes instead of a picture**: yazi is installed and the backends are there, but the terminal cannot draw an image. See [File previews](#file-previews) — inside tmux it is usually the missing `allow-passthrough` line.
 - **`.tar.xz` release assets** (FFmpeg, 7-Zip) need `xz` for `tar` to unpack them. A minimal image may not have it; the run says so rather than reporting an unexplained extraction failure. Install `xz` or `xz-utils` and run again.
 - **Amazon Linux 2**: the repositories are older, so most modern tools are installed from a GitHub release into `~/.local/bin`. That is expected.
@@ -755,6 +763,34 @@ macOS users can also tune iTerm2's rendering settings. Look at the current state
 What it covers: GPU rendering is not disabled on battery, rendering favours throughput, transparency and blur are turned off, ligatures are turned off, and scrollback becomes bounded instead of unlimited. Trigger counts and background images are reported only, never modified.
 
 ## What changed in this release
+
+### A run installs the whole catalog, not one tool (fix)
+
+A run used to stop after the first tool it actually installed, and report success. The catalog was fed into the install loop on standard input, and the commands in that loop read standard input too — dnf reads it to ask whether to import a repository GPG key. That one install consumed every remaining catalog line, the loop ran out of input, and the summary was honest about what it had reached: each of those tools really had passed. Nothing said the other forty-seven were never attempted.
+
+The visible effect was a machine that filled up one tool per run. An Amazon Linux 2023 box took six runs to reach seven of the fifty-four tools, each run reporting `All requested tools passed verification`.
+
+The catalog now arrives on file descriptor 3, which no installer touches. Standard input stays connected to your terminal, so a package manager that genuinely needs to ask you something still can.
+
+### A tool is verified only if it says its version (fix)
+
+`~/.local/bin/fastfetch` turned out to be a bash-completion script. fastfetch's release tarball carries two files called `fastfetch` — the binary in `usr/bin` and a completion script under `usr/share` — and the search for the payload took whichever the filesystem listed first, which is not the same order on every machine. The verification step then ran it: sourcing a completion script exits 0 and prints nothing, and exit status was the whole test.
+
+Two changes, because either one alone still lets a broken install through. The payload search prefers an executable file — the completion script ships non-executable — while still accepting a non-executable exact match, because a project that publishes a bare binary hands us the file `curl` just wrote. And verification now requires the version query to print something, on either output stream.
+
+Re-running fixes an already-broken install: the tool no longer looks present, so it is fetched again.
+
+### A tool that cannot run here is a skip, not a failure (fix)
+
+Three things were reported as failures when the honest answer was that this machine has no build to install:
+
+- **The build needs a newer glibc than the system has.** Amazon Linux 2023 is on glibc 2.34; tree-sitter, resvg and Neovide publish Linux binaries wanting 2.39, 2.35 and 2.35. Each downloaded, verified and installed correctly, and then the loader refused it. They now report `SKIPPED (platform)` with the glibc version named, and the unusable binary is removed instead of left on `PATH`.
+- **A `musl` build exists and was not being taken.** `gping` is yazi's problem one release later, so it is pinned to the static `musl` asset the same way. It works on Amazon Linux now.
+- **Neither the distribution nor upstream has the tool.** `entr` and `ncdu` on Amazon Linux: no package, no cross-platform release, nothing attempted. `SKIPPED (platform)`. A package install that ran and failed is still `FAILED` — that distinction is what keeps a broken `apt` from being reported as a quiet skip.
+
+The effect is that a complete run on Amazon Linux 2023 exits 0 again. It used to exit 2 permanently, which made the exit code useless for telling a real failure from a platform it cannot serve.
+
+Two smaller fixes came out of the same run. Neovide publishes an *uncompressed* `.tar`, which was not on the list of archive extensions, so the tarball itself was installed as the binary and died with an exec format error. And the summary counted filtered tools and platform gaps together, so a run with no filter could report `Skipped by filter: 5`; those are now separate lines.
 
 ### The shell config file follows your login shell (fix)
 

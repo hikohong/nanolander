@@ -39,6 +39,34 @@ count_files() {
   printf '%s' "$n"
 }
 
+# path_without <name...> — the current PATH minus every directory that provides
+# one of these commands.
+#
+# An assertion about a tool being *absent* cannot be arranged by prepending
+# anything: `command -v` searches the whole PATH, so the directory has to go.
+# Several suites turn on absence — nanolander warns instead of failing when
+# there is no Neovim to configure, and make_compat_links only links 7z to 7zz
+# when there is no 7zz — and they read the real PATH, so they passed on a bare
+# CI runner and failed on a machine that had actually landed the toolkit. Which
+# is the machine the toolkit is for.
+path_without() {
+  local wants="$*" dir want keep out="" oifs="$IFS"
+  IFS=:
+  for dir in $PATH; do
+    IFS="$oifs"
+    if [ -n "$dir" ]; then
+      keep=y
+      for want in $wants; do
+        if [ -x "$dir/$want" ]; then keep=n; break; fi
+      done
+      [ "$keep" = y ] && out="${out:+$out:}$dir"
+    fi
+    IFS=:
+  done
+  IFS="$oifs"
+  printf '%s' "$out"
+}
+
 # stub_tools <dir> <name...> — instant no-op executables on PATH.
 #
 # The suites drive the real ./bin/nanolander, which refreshes the package

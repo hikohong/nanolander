@@ -38,9 +38,11 @@ chk "the config actually lands"        "$(exists "$H/.config/nvim/init.vim")" "y
 chk "and the run still succeeds"       "$(printf '%s' "$out" | grep -c 'Neovim configuration installed')" "1"
 
 # Without Neovim there is nothing to configure, and that is a warning rather
-# than a failure of the whole run. NVIM_STUB is deliberately not on PATH here.
+# than a failure of the whole run. NVIM_STUB is deliberately not on PATH here —
+# and neither is the real one, which a machine that has landed the toolkit has.
 H2=$(mktemp -d)
 out=$(HOME="$H2" XDG_CONFIG_HOME="$H2/.config" XDG_DATA_HOME="$H2/.local/share" \
+  PATH="$(path_without nvim)" \
   "$REPO_ROOT/bin/nanolander" --only git --with-nvim-config 2>&1)
 chk "no nvim is a warning, not a stop" "$(printf '%s' "$out" | grep -c 'Neovim is not installed, so there is no configuration')" "1"
 chk "the tool run still exits 0"       "$?" "0"
