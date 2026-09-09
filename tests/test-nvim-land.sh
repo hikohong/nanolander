@@ -72,12 +72,21 @@ printf '#!/bin/sh\nexit 0\n' > "$STUB/git"
 chmod +x "$STUB/nvim" "$STUB/git"
 export NVIM_ARGS="$H/nvim-args"
 
-# This block writes a lockfile into the repository, which is the one thing any
-# suite does outside a throwaway HOME. A trap removes it however the suite
-# ends: leaving it behind makes the next run start from the wrong state, which
-# is exactly how this suite once failed in CI and passed on its own.
-SRC="$REPO_ROOT/share/nvim"
-trap 'rm -f "$SRC/lazy-lock.json"; rm -rf "$H" "$H2"' EXIT
+# The lockfile assertions need to add and remove one, so they run against a
+# throwaway copy of the checkout rather than the repository. An earlier version
+# wrote straight into share/nvim and removed it again on the way out, which
+# deleted the lockfile the repository actually ships: ./tests/run.sh silently
+# unpinned the plugin set, and the next --apply took each project's head.
+# nvim-land finds share/nvim relative to $0, so a copied script is all it takes.
+FAKE="$H/checkout"
+mkdir -p "$FAKE/bin" "$FAKE/share"
+cp "$REPO_ROOT/bin/nvim-land" "$FAKE/bin/nvim-land"
+chmod +x "$FAKE/bin/nvim-land"
+cp -R "$REPO_ROOT/share/nvim" "$FAKE/share/nvim"
+NL="$FAKE/bin/nvim-land"
+SRC="$FAKE/share/nvim"
+rm -f "$SRC/lazy-lock.json"
+trap 'rm -rf "$H" "$H2"' EXIT
 chk "no stale lockfile to start from" "$(exists "$SRC/lazy-lock.json")" "n"
 : > "$NVIM_ARGS"
 PATH="$STUB:$PATH" "$NL" --apply >/dev/null 2>&1
@@ -91,7 +100,7 @@ chk "a lockfile means restore"     "$(grep -c 'Lazy! restore' "$NVIM_ARGS")" "1"
 chk "sync is not used with a lock" "$(grep -c 'Lazy! sync' "$NVIM_ARGS")" "0"
 chk "the lockfile is installed"    "$(exists "$T/lazy-lock.json")" "y"
 chk "report says it is pinned"     "$(PATH="$STUB:$PATH" "$NL" | grep -c 'pinned by lazy-lock.json')" "1"
-rm -f "$SRC/lazy-lock.json"   # also removed by the trap
+rm -f "$SRC/lazy-lock.json"
 chk "report says it is unpinned"   "$(PATH="$STUB:$PATH" "$NL" | grep -c 'unpinned')" "1"
 
 # --freeze refuses to pin a tree that does not match what we ship, or the

@@ -100,10 +100,19 @@ Each has an assertion here now. Keep them.
   GitHub's Linux runners do — the suites wrote into the real configuration
   directory and asserted against an empty one. They passed locally and failed
   in CI, which is what CI is for.
-- **One suite writes into the repository.** `test-nvim-land.sh` puts a
-  `lazy-lock.json` in `share/nvim` to check that a lockfile changes `--apply`
-  from `sync` to `restore`. A trap removes it however the suite ends, and it
-  asserts there is no stale one to start from.
+- **No suite writes into the repository.** `test-nvim-land.sh` has to add and
+  remove a `lazy-lock.json` to check that one changes `--apply` from `sync` to
+  `restore`, so it copies the checkout — `bin/nvim-land` plus `share/nvim` —
+  into the throwaway `HOME` and works on that. It used to write into
+  `share/nvim` itself and delete the file on the way out, which took the
+  lockfile the repository ships with it: `./tests/run.sh` quietly unpinned the
+  plugin set, and the next `--apply` took each project's head.
+- **A run with a tool missing has to survive `brew shellenv`.** `path_without`
+  drops whole directories, so removing `nvim` from a Homebrew PATH also removes
+  `brew` — and `setup_homebrew` puts `/opt/homebrew/bin` straight back, `nvim`
+  included. `test-companions.sh` calls `install_nvim_config` through
+  `NANOLANDER_LIB=1` instead of driving the whole script, which is the only way
+  that branch is reachable on a Mac.
 - **Any platform.** The suites run on Linux and macOS alike, and CI runs both.
 - **Fast.** The whole set is about ten seconds. Keep it that way: a suite that
   takes minutes stops being run.
