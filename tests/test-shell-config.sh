@@ -12,14 +12,12 @@ set -uo pipefail
 . "$(dirname "$0")/lib.sh"
 temp_home; H="$TEST_HOME"
 
-# detect_environment sends macOS to ~/.zshrc and everything else to ~/.bashrc,
-# so the file to assert against is not a constant. Hard-coding .bashrc made
-# this suite check a file macOS never writes: it passed on Linux and every
-# write assertion failed on the macOS runner.
-case "$(uname -s)" in
-  Darwin) RCNAME=".zshrc" ;;
-  *)      RCNAME=".bashrc" ;;
-esac
+# Which rc file gets written is decided by the runner's login shell, so it is
+# not a constant: this suite used to infer it from uname, which was already
+# wrong for a Linux box whose login shell is zsh. --shell pins it instead, so
+# every assertion below is about backup/restore/uninstall and nothing else.
+# Picking the target is test-shell-target.sh's job.
+RCNAME=".bashrc"
 RC="$H/$RCNAME"
 NL="$REPO_ROOT/bin/nanolander"
 # No package manager work: these assertions are about the rc file.
@@ -35,7 +33,7 @@ USERRC
 ORIG=$(cat "$RC")
 
 # ---- install ------------------------------------------------------------
-"$NL" --only git --with-aliases >/dev/null 2>&1
+"$NL" --shell bash --only git --with-aliases >/dev/null 2>&1
 chk "install exit" "$?" "0"
 chk "backup dir created" "$([ -d "$H/.nanolander-backups" ] && echo y || echo n)" "y"
 chk "one backup of the rc file" "$(count_files "$H/.nanolander-backups"/"$RCNAME".*)" "1"
@@ -53,11 +51,11 @@ chk "pre-restore snapshot kept" "$(count_files "$H/.nanolander-backups/pre-resto
 "$NL" --restore-shell >/dev/null 2>&1
 chk "restore is idempotent" "$(cat "$RC")" "$ORIG"
 # same-second runs must not clobber each other's backups
-for _ in 1 2 3; do "$NL" --only git >/dev/null 2>&1; "$NL" --restore-shell >/dev/null 2>&1; done
+for _ in 1 2 3; do "$NL" --shell bash --only git >/dev/null 2>&1; "$NL" --restore-shell >/dev/null 2>&1; done
 chk "no backup was overwritten" "$(cat "$RC")" "$ORIG"
 
 # ---- install again, then uninstall --------------------------------------
-"$NL" --only git --with-aliases >/dev/null 2>&1
+"$NL" --shell bash --only git --with-aliases >/dev/null 2>&1
 echo 'export MY_LATER_VAR=1' >> "$RC"          # user edits after install
 mkdir -p "$H/.local/share/nanolander" "$H/.local/bin" "$H/.local/opt"
 printf 'fake\n' > "$H/.local/bin/faketool"; chmod +x "$H/.local/bin/faketool"
