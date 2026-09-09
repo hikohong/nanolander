@@ -17,7 +17,7 @@ Project site: `docs/` (GitHub Pages, English)
 nanolander is not an installer for one machine — it is a **portable terminal
 environment**. The promise is that a fresh box, whether it is the laptop in
 front of you or a bare EC2 instance you just SSH'd into, ends up with the same
-47 tools, the same shell behaviour and the same editor.
+54 tools, the same shell behaviour and the same editor.
 
 | Platform | Package manager | Shell config target if the login shell is unrecognised |
 | --- | --- | --- |
@@ -106,6 +106,18 @@ platform.
 - **Installing a font cannot select it.** That belongs to the terminal, and
   for a remote box it belongs to the terminal on the user's laptop. Say so;
   do not imply the prompt will look right on its own.
+- **Never feed a loop that installs anything from stdin.** `install_all_tools`
+  reads the catalog on **descriptor 3** (`read … <&3`, `done 3<<CATALOG`)
+  because the loop body runs package managers and dnf reads stdin to ask about
+  importing a repository GPG key. On stdin, the first tool that actually
+  installed something ate every remaining catalog line, the loop ended there,
+  and the summary called it a success — one Amazon Linux box took six runs to
+  get seven of the fifty-four tools. Descriptor 3 also leaves stdin on the
+  terminal, so a package manager that must ask can still be answered.
+- **A tool counts as installed only when its version query prints something.**
+  Exit status is not enough; see `command_works`. Anything that adds a new
+  verification path keeps that rule, or a file that merely has the right name
+  gets reported verified.
 - **Idempotent.** Re-running must not duplicate a shell rc line or reinstall
   what is already there. Shell config is written with whole-line comparison
   (`grep -Fqx`).
@@ -155,13 +167,13 @@ verify → shell config → summary.
 | `github_install` | latest release → pick asset → verify SHA-256 → extract → install to `~/.local/bin` |
 | `select_asset` | **full suffix match first, substring second** — this is what stops `linux_arm` matching an `arm64` host |
 | `parse_assets` | flattens the release JSON without jq; pairs each URL with its own digest |
-| `find_payload` | exact basename, then prefix — catches `yq_linux_amd64`, `shfmt_v3.10.0_linux_amd64`, `direnv.linux-amd64` |
+| `find_payload` | exact basename, then prefix — catches `yq_linux_amd64`, `shfmt_v3.10.0_linux_amd64`, `direnv.linux-amd64`. **Each pass prefers an executable**, because an archive can hold two files with the command's name and only one is the program (fastfetch ships a bash-completion script called `fastfetch`). The exec bit cannot be the only rule: a bare-binary release lands here as the 0644 file curl wrote |
 | `install_neovim_tree` | Neovim needs its runtime dir: `~/.local/opt/nvim-github` + symlink |
 | `tool_unsupported_here` / `ensure_tool` | the one platform exception (Neovide) and the wrapper that routes a catalog entry to the brew or Linux path |
 | `make_compat_links` | Debian/Ubuntu ship `fdfind` / `batcat`; link them to `fd` / `bat` |
 | `ensure_nerd_font` / `install_nerd_font` | the one catalog entry that installs no command; same upstream release on all four platforms, monospaced faces only, `~/Library/Fonts` on macOS and `~/.local/share/fonts` + `fc-cache` elsewhere |
 | `select_named_asset` | picks a release asset by exact filename — the font release is one archive per family, not per architecture |
-| `command_works` | runs a real version query. Exceptions: `tmux -V`, `unzip -v`, `cscope -V`, `entr` by PATH presence |
+| `version_query` / `command_works` | runs a real version query and **requires it to print something**, on either stream — exit status alone passed a completion script that sources silently and exits 0. Spellings live in `version_query`: `tmux -V`, `unzip -v`, `cscope -V`, `pdftoppm -v`, `ffmpeg -version`. `entr` and `7zz` have no version flag, so PATH presence is their test |
 | `shell_line` | **the only definition of every managed rc line**; both `configure_shell` and the uninstaller read it, so they cannot drift apart |
 | `configure_shell` | PATH, zoxide, starship, direnv, fzf keys + `FZF_DEFAULT_COMMAND`, optional alias block |
 | `script_dir` / `install_nvim_config` | `--with-nvim-config`; resolves `$0` through symlinks, because README tells people to link `bin/nanolander` onto PATH, then hands off to `bin/nvim-land --apply` |
@@ -182,7 +194,7 @@ Three places, in this order:
    cross-platform binaries (`tig`, `cscope`, `entr`, `ctags` are repository-only)
 
 Then update the tool count and the tables in `README.md` **and
-`docs/index.html`** (the site's `47 tools` string appears three times: the hero
+`docs/index.html`** (the site's `54 tools` string appears three times: the hero
 fact, the filter count and the JS reset).
 
 Watch for a package that installs cleanly and still does not provide the
@@ -256,10 +268,12 @@ Follow `bin/iterm-tune`:
 shellcheck -S style bin/* tests/*.sh   # must be silent
 ```
 
-`tests/README.md` lists what each suite covers. The four that exist because
+`tests/README.md` lists what each suite covers. The six that exist because
 of shipped bugs — the `linux_arm` mismatch, the dropped last asset, the
-same-second backup collision, and an rc file chosen from the platform instead
-of the login shell — are the ones to keep when refactoring.
+same-second backup collision, an rc file chosen from the platform instead
+of the login shell, **a run that stopped after the first tool it installed**,
+and **a completion script installed as the binary and reported verified** —
+are the ones to keep when refactoring.
 
 The suites need no network, no root and no particular platform: `github_api`
 is overridden to emit a fixture and asset URLs point at `file://` paths, which

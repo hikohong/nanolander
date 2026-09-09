@@ -136,9 +136,11 @@ OPT_WITH_NVIM_CONFIG=0
 RESULTS=""        # cmd|status|source|path per line
 COUNT_SUCCESS=0
 COUNT_FAILED=0
-COUNT_SKIPPED=0
+COUNT_SKIPPED=0   # asked not to install: --only / --skip
+COUNT_ABSENT=0    # nothing to install here: no build for this platform
 
 INSTALL_SOURCE=""
+PKG_ATTEMPTED=0   # did this tool's package install actually run and fail?
 BACKED_UP=""      # files already backed up in this run
 PICKED_URL=""
 PICKED_DIGEST=""
@@ -770,8 +772,13 @@ pkg_candidates() {
 
 # try_package_candidates — walk the candidate names in order and stop at the
 # first one that is already installed or installs cleanly.
+# PKG_ATTEMPTED records whether an install was actually run, so that "this
+# distribution does not carry the tool" can be told apart from "the install
+# broke". The first is a platform gap; the second is a failure the user needs
+# to see, and a misconfigured apt must not be reported as a quiet skip.
 try_package_candidates() {
   local cmd="$1" pkg
+  PKG_ATTEMPTED=0
   for pkg in $(pkg_candidates "$cmd"); do
     if package_installed "$pkg"; then
       INSTALL_SOURCE="existing"
@@ -781,6 +788,7 @@ try_package_candidates() {
   for pkg in $(pkg_candidates "$cmd"); do
     if package_available "$pkg"; then
       info "Installing package $pkg"
+      PKG_ATTEMPTED=1
       if install_package "$pkg"; then
         INSTALL_SOURCE="package manager"
         return 0
@@ -841,13 +849,16 @@ github_repo() {
 }
 
 # ---------------------------------------------------------------------------
-# github_asset_name — the exact release asset to take on Linux, for the two
+# github_asset_name — the exact release asset to take on Linux, for the three
 # projects where keyword matching picks the wrong file. An empty result means
 # "let select_asset decide", which is the case for everything else.
 #
-# yazi: upstream ships a gnu and a musl build of each target. The gnu one is
-# linked against a newer glibc than Amazon Linux 2 has, so it installs and then
-# cannot run; the musl one is static and runs on all four platforms.
+# yazi and gping: upstream ships a gnu and a musl build of each target. The gnu
+# one is linked against a newer glibc than the distribution has — Amazon Linux 2
+# for yazi, and Amazon Linux 2023 for gping, whose gnu build wants 2.39 against
+# the 2.34 that is there — so it installs and then cannot run. The musl build is
+# static and runs on all four platforms, so it is the one to take everywhere
+# rather than only where the mismatch shows up.
 #
 # FFmpeg-Builds: every target comes as -gpl and -gpl-shared, and containment
 # finds the shared one first because it sorts earlier. Its ffmpeg needs the
@@ -864,6 +875,12 @@ github_asset_name() {
       case "$ARCH" in
         arm64)  printf 'yazi-aarch64-unknown-linux-musl.zip' ;;
         x86_64) printf 'yazi-x86_64-unknown-linux-musl.zip' ;;
+      esac ;;
+    gping)
+      case "$ARCH" in
+        arm64)  printf 'gping-Linux-musl-arm64.tar.gz' ;;
+        x86_64) printf 'gping-Linux-musl-x86_64.tar.gz' ;;
+        armv7)  printf 'gping-Linux-musleabihf-armv7.tar.gz' ;;
       esac ;;
     ffmpeg)
       case "$ARCH" in
@@ -931,15 +948,19 @@ strip_archive_ext() {
     *.tgz)     printf '%s' "${name%.tgz}" ;;
     *.tbz)     printf '%s' "${name%.tbz}" ;;
     *.txz)     printf '%s' "${name%.txz}" ;;
+    *.tar)     printf '%s' "${name%.tar}" ;;
     *.zip)     printf '%s' "${name%.zip}" ;;
     *.gz)      printf '%s' "${name%.gz}" ;;
     *)         printf '%s' "$name" ;;
   esac
 }
 
+# An uncompressed .tar counts: Neovide publishes neovide-linux-x86_64.tar with
+# no compression at all, and without this entry the tarball itself was copied
+# into ~/.local/bin as the binary — which then failed with an exec format error.
 is_archive() {
   case "$1" in
-    *.tar.gz|*.tar.xz|*.tar.bz2|*.tgz|*.tbz|*.txz|*.zip|*.gz) return 0 ;;
+    *.tar.gz|*.tar.xz|*.tar.bz2|*.tgz|*.tbz|*.txz|*.tar|*.zip|*.gz) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -1045,9 +1066,24 @@ extract_archive() {
 # basename match wins; otherwise a prefix match catches projects that ship the
 # binary under a decorated name (yq_linux_amd64, shfmt_v3.10.0_linux_amd64,
 # direnv.linux-amd64), which is then installed under the plain command name.
+#
+# Each pass prefers an executable file, because an archive can hold more than
+# one file with the command's name and only one of them is the program:
+# fastfetch ships both usr/bin/fastfetch and a bash-completion script called
+# usr/share/bash-completion/completions/fastfetch. `find` walks directories in
+# readdir order, so without this the wrong one wins on some machines and not
+# others. The mode is the reliable discriminator — upstream ships the
+# completion 0644 — but it cannot be the only rule: a release that publishes a
+# bare binary lands here as the 0644 file curl just wrote, hence the fallback
+# to an exact match of any mode.
 find_payload() {
   local root="$1" cmd="$2" found
+  found=$(find "$root" -type f -perm -100 -name "$cmd" 2>/dev/null | head -1)
+  if [ -n "$found" ]; then printf '%s' "$found"; return 0; fi
   found=$(find "$root" -type f -name "$cmd" 2>/dev/null | head -1)
+  if [ -n "$found" ]; then printf '%s' "$found"; return 0; fi
+  found=$(find "$root" -type f -perm -100 -name "$cmd*" 2>/dev/null \
+    | grep -v -E '\.(1|md|txt|json|ps1|fish|zsh|bash|gz|tar)$' | head -1)
   if [ -n "$found" ]; then printf '%s' "$found"; return 0; fi
   found=$(find "$root" -type f -name "$cmd*" 2>/dev/null \
     | grep -v -E '\.(1|md|txt|json|ps1|fish|zsh|bash|gz|tar)$' | head -1)
@@ -1408,26 +1444,78 @@ make_compat_links() {
 }
 
 # ---------------------------------------------------------------------------
-# command_works — presence on PATH is not proof, so run the version query.
-# tmux uses -V, unzip uses -v, cscope uses -V, pdftoppm uses -v and rejects
-# --version, and ffmpeg's own spelling is -version. entr and 7-Zip have no
-# version flag at all — a bare 7zz prints its banner and then a usage screen —
-# so for those two being on PATH is the test.
+# version_query — how each tool is asked for its version. tmux uses -V, unzip
+# uses -v, cscope uses -V, pdftoppm uses -v and rejects --version, and
+# ffmpeg's own spelling is -version. Split out from command_works so the exit
+# status and the output belong to the query itself.
+# ---------------------------------------------------------------------------
+version_query() {
+  case "$1" in
+    tmux)          tmux -V ;;
+    unzip)         unzip -v ;;
+    cscope)        cscope -V ;;
+    pdftoppm)      pdftoppm -v ;;
+    ffmpeg)        ffmpeg -version ;;
+    *)             "$1" --version ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# command_works — presence on PATH is not proof, so run the version query and
+# require it to both succeed and say something. Exit status alone is too weak:
+# a bash-completion script named after the command sources cleanly and exits 0
+# in silence, which is how a completion file installed as ~/.local/bin/fastfetch
+# was once reported verified. Version output goes to stdout for most of these
+# and to stderr for pdftoppm, so both streams count.
+#
+# entr and 7-Zip have no version flag at all — a bare 7zz prints its banner and
+# then a usage screen — so for those two being on PATH is the test.
 # ---------------------------------------------------------------------------
 command_works() {
-  local cmd="$1"
+  local cmd="$1" out
   # The font is the one catalog entry that installs no command at all.
   [ "$cmd" = "nerd-font" ] && { nerd_font_installed; return $?; }
   command -v "$cmd" >/dev/null 2>&1 || return 1
   case "$cmd" in
-    entr|7zz)      return 0 ;;
-    tmux)          tmux -V >/dev/null 2>&1 ;;
-    unzip)         unzip -v >/dev/null 2>&1 ;;
-    cscope)        cscope -V >/dev/null 2>&1 ;;
-    pdftoppm)      pdftoppm -v >/dev/null 2>&1 ;;
-    ffmpeg)        ffmpeg -version >/dev/null 2>&1 ;;
-    *)             "$cmd" --version >/dev/null 2>&1 ;;
+    entr|7zz) return 0 ;;
   esac
+  out=$(version_query "$cmd" 2>&1) || return 1
+  [ -n "$out" ]
+}
+
+# ---------------------------------------------------------------------------
+# glibc_too_old_for — did this binary refuse to start because the system C
+# library is older than the one it was linked against?
+#
+# Upstream increasingly builds against a newer glibc than an enterprise
+# distribution carries. Amazon Linux 2023 is on 2.34, and the only Linux
+# binaries tree-sitter, resvg and Neovide publish want 2.39, 2.35 and 2.35, so
+# the loader stops them before main() runs:
+#
+#   tree-sitter: /lib64/libc.so.6: version `GLIBC_2.39' not found
+#
+# There is nothing wrong with the install and nothing a re-run would fix — the
+# tool has no build for this platform, which is what SKIPPED (platform) means.
+# Reporting it as FAILED made a complete run exit 2 on every Amazon Linux box.
+#
+# Read from the loader's own message rather than comparing version numbers:
+# ldd is not on every image, its output format is not stable across libcs, and
+# the binary itself is the authority on what it needs.
+# ---------------------------------------------------------------------------
+glibc_too_old_for() {
+  local out
+  command -v "$1" >/dev/null 2>&1 || return 1
+  out=$(version_query "$1" 2>&1)
+  case "$out" in
+    *GLIBC_*"not found"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# system_glibc — "2.34", or empty where the question does not apply (macOS) or
+# cannot be answered. Reported alongside the skip so the reason is legible.
+system_glibc() {
+  ldd --version 2>/dev/null | sed -n '1s/.*[^0-9]\(2\.[0-9][0-9]*\).*/\1/p'
 }
 
 # ---------------------------------------------------------------------------
@@ -1437,10 +1525,18 @@ record_result() {
   local cmd="$1" status="$2" source="$3" path="$4"
   RESULTS="${RESULTS}${cmd}|${status}|${source}|${path}
 "
+  # A tool the user filtered out and a tool this platform has no build for are
+  # both SKIPPED in the table, and they were counted together — so a summary
+  # reading "Skipped by filter: 5" on a run with no filter at all was the
+  # closest thing to a report that four tools had nowhere to come from.
   case "$status" in
     SUCCESS) COUNT_SUCCESS=$((COUNT_SUCCESS + 1)) ;;
     FAILED)  COUNT_FAILED=$((COUNT_FAILED + 1)) ;;
-    SKIPPED) COUNT_SKIPPED=$((COUNT_SKIPPED + 1)) ;;
+    SKIPPED)
+      case "$source" in
+        filter) COUNT_SKIPPED=$((COUNT_SKIPPED + 1)) ;;
+        *)      COUNT_ABSENT=$((COUNT_ABSENT + 1)) ;;
+      esac ;;
   esac
 }
 
@@ -1449,7 +1545,7 @@ record_result() {
 # already working, package manager, GitHub release fallback, then verify.
 # ---------------------------------------------------------------------------
 ensure_linux_tool() {
-  local cmd="$1" name="$2" repo path
+  local cmd="$1" name="$2" repo path glibc
 
   if ! wants_tool "$cmd" "$name"; then
     record_result "$cmd" "SKIPPED" "filter" "-"
@@ -1493,6 +1589,34 @@ ensure_linux_tool() {
     path=$(command -v "$cmd")
     ok "$name verified: $path"
     record_result "$cmd" "SUCCESS" "${INSTALL_SOURCE:-package manager}" "$path"
+    return 0
+  fi
+
+  # The binary is there and will never run here. Leaving it on PATH is worse
+  # than not having it — a half-working tree-sitter makes Neovim's parser build
+  # fail in a way that points nowhere near the real cause — so it goes, and the
+  # manifest entry it left behind is harmless because --uninstall skips paths
+  # that are already gone.
+  if glibc_too_old_for "$cmd"; then
+    glibc=$(system_glibc)
+    info "$name's build for $OS_LABEL needs a newer glibc than this system has${glibc:+ (glibc $glibc)}; skipping."
+    rm -f "$LOCAL_BIN/$cmd"
+    record_result "$cmd" "SKIPPED" "platform" "-"
+    return 0
+  fi
+
+  # Nothing was ever attempted: no distribution package exists for this tool
+  # here and the project publishes no cross-platform binary either. That is the
+  # case tool_unsupported_here already calls a skip rather than a failure — it
+  # just cannot be known ahead of time, because it depends on what this
+  # distribution happens to carry. entr and ncdu land here on Amazon Linux.
+  #
+  # PKG_ATTEMPTED keeps a broken package manager out of this branch: an install
+  # that ran and failed is a failure to report, not a platform without the tool.
+  if [ "$PKG_ATTEMPTED" -eq 0 ] && [ -z "$(github_repo "$cmd")" ] &&
+     ! command -v "$cmd" >/dev/null 2>&1; then
+    info "$name is packaged by neither $PKG_MANAGER nor upstream on $OS_LABEL; skipping."
+    record_result "$cmd" "SKIPPED" "platform" "-"
     return 0
   fi
 
@@ -1594,16 +1718,29 @@ ensure_tool() {
   fi
 }
 
+# install_all_tools — the catalog arrives on file descriptor 3, not on stdin.
+#
+# The loop body installs packages and unpacks releases, and those commands read
+# stdin: dnf prompts before importing a repository GPG key, and a package
+# manager may ask anything else it likes. With the catalog on stdin the first
+# tool that actually installed something swallowed every remaining line, the
+# loop ended there, and the summary called the run a success because each tool
+# it did reach had passed. That is why six runs on one Amazon Linux box left it
+# with seven of the fifty-four tools — one more per run.
+#
+# Descriptor 3 fixes it from both sides: the loop cannot lose its input, and
+# stdin stays connected to the terminal so a package manager that really does
+# need to ask the user can still be answered.
 install_all_tools() {
   local cmd name category purpose
-  while IFS='|' read -r cmd name category purpose; do
+  while IFS='|' read -r cmd name category purpose <&3; do
     [ -n "$cmd" ] || continue
     case "$cmd" in
       # The font takes the same route on every platform, by design.
       nerd-font) ensure_nerd_font "$cmd" "$name" ;;
       *)         ensure_tool "$cmd" "$name" ;;
     esac
-  done <<CATALOG
+  done 3<<CATALOG
 $TOOL_CATALOG
 CATALOG
 }
@@ -2075,6 +2212,7 @@ RESULTS_EOF
   printf '\n'
   info "Successful: $COUNT_SUCCESS"
   info "Skipped by filter: $COUNT_SKIPPED"
+  info "No build for this platform: $COUNT_ABSENT"
   info "Failed: $COUNT_FAILED"
 }
 

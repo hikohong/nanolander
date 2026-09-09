@@ -52,6 +52,18 @@ github_install yq fake/yq >/dev/null 2>&1
 chk "bare binary installs"        "$?" "0"
 chk "installed under plain name"  "$("$LOCAL_BIN/yq" 2>/dev/null)" "yq 4.0"
 
+# An uncompressed .tar, as Neovide publishes. Without .tar in is_archive the
+# tarball was copied into ~/.local/bin as the binary, installed 0755, recorded
+# in the manifest, and reported installed — then died with an exec format error.
+mkdir -p "$W/src/neovide-linux-x86_64"
+printf '#!/bin/sh\necho neovide 0.15\n' > "$W/src/neovide-linux-x86_64/neovide"
+chmod +x "$W/src/neovide-linux-x86_64/neovide"
+tar -cf "$W/neovide-linux-x86_64.tar" -C "$W/src" neovide-linux-x86_64
+github_api() { printf '%s\n' "{\"assets\":[{\"name\":\"neovide-linux-x86_64.tar\",\"browser_download_url\":\"file://$W/neovide-linux-x86_64.tar\"}]}"; }
+github_install neovide fake/neovide >/dev/null 2>&1
+chk "an uncompressed .tar installs"  "$?" "0"
+chk "the binary runs, not the tar"   "$("$LOCAL_BIN/neovide" 2>/dev/null)" "neovide 0.15"
+
 # A wrong digest must refuse, and leave nothing behind.
 github_api() { printf '%s\n' "{\"assets\":[{\"name\":\"f.tar.gz\",\"digest\":\"sha256:$(printf '0%.0s' $(seq 64))\",\"browser_download_url\":\"file://$W/f-x86_64-unknown-linux-gnu.tar.gz\"}]}"; }
 rm -f "$LOCAL_BIN/evil"
