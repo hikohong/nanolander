@@ -36,6 +36,56 @@ Icon[[:cntrl:]]
 Network Trash Folder
 Temporary Items
 
+# ---------------------------------------------------------------------------
+# Windows
+# ---------------------------------------------------------------------------
+
+# Explorer's thumbnail caches, written into any folder it renders as icons.
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+
+# Per-folder Explorer settings. Capitalised either way depending on how the
+# folder was created.
+[Dd]esktop.ini
+
+# The recycle bin a file share gets.
+$RECYCLE.BIN/
+
+# Crash dumps from the POSIX subsystem, which is what Git Bash and Cygwin run
+# under, so a crashed script here leaves one.
+*.stackdump
+
+# Shortcuts. Explorer offers to make one whenever a file is dragged.
+*.lnk
+
+# Deliberately not here: *.msi, *.cab, *.msix, *.msm, *.msp. Those are
+# distributable installers, not something Windows drops in a working
+# directory, and this project ships none — the pattern could only ever hide a
+# mistake.
+
+# ---------------------------------------------------------------------------
+# Linux
+# ---------------------------------------------------------------------------
+
+# Backup copies, written by most editors and by sed -i.bak style workflows.
+# The restore instructions in README.md produce these.
+*~
+
+# Left behind when a process still holds a deleted file open on a FUSE mount.
+.fuse_hidden*
+
+# Per-folder settings, the KDE counterpart to desktop.ini.
+.directory
+
+# The trash folder a partition or removable disk gets.
+.Trash-*
+
+# Written when an open file is removed on an NFS mount and the handle is still
+# live. An EC2 instance with a shared home directory produces these.
+.nfs*
+
 # Not ignored on purpose: share/nvim/lazy-lock.json is shipped, because it is
 # what pins the plugin set. Regenerate it with ./bin/nvim-land --freeze and
 # commit the result.
