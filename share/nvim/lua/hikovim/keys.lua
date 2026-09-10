@@ -8,6 +8,9 @@
 --   <C-\>s g c   cscope queries   was :cs find …         now LSP, else ripgrep
 --   <C-\>t e f i d
 --
+-- The IDE layout keys — <F4> and <C-w> from terminal mode — live in
+-- hikovim/ide.lua, next to the windows they move between.
+--
 -- Everything else — ,sp ,lp ,ic ,f ,F <space> <backspace> <C-h> <C-Z> — comes
 -- straight from ~/.vimrc and behaves as it always did.
 

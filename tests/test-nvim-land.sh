@@ -29,7 +29,11 @@ out=$("$NL" --apply --no-sync 2>&1); chk "apply exit" "$?" "0"
 chk "a backup is written" "$(count_files "$H/.nanolander-backups/config-nvim."*)" "1"
 chk "the backup holds the original" "$(cat "$H/.nanolander-backups/config-nvim."*/init.vim)" "my own init"
 chk "init.vim is replaced" "$([ "$(cat "$T/init.vim")" = "my own init" ] && echo no || echo yes)" "yes"
-chk "every shipped lua file lands" "$(find "$T" -name '*.lua' -path '*hikovim*' | wc -l | tr -d ' ')" "4"
+# Counted from the source tree rather than written down here, so adding a
+# module to share/nvim/lua/hikovim does not break the suite that ships it.
+chk "every shipped lua file lands" \
+  "$(find "$T" -name '*.lua' -path '*hikovim*' | wc -l | tr -d ' ')" \
+  "$(find "$REPO_ROOT/share/nvim/lua/hikovim" -name '*.lua' | wc -l | tr -d ' ')"
 chk "the foreign file is untouched" "$(cat "$T/lua/mine/private.lua")" "$ORIG_FOREIGN"
 
 # Already up to date: no second backup.

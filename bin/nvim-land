@@ -65,6 +65,8 @@ WHAT IT INSTALLS:
                                binary is on PATH
   lua/hikovim/keys.lua         ,tb and the <C-\\> cscope keys, kept on the
                                same letters they have in vim
+  lua/hikovim/ide.lua          the four-pane layout: editor, outline, file
+                               explorer and a strip of terminals
 
 WHAT IT DOES NOT DO:
   It never edits ~/.vimrc or ~/.vim; those belong to hikovim and stay the

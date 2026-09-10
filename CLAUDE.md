@@ -59,7 +59,7 @@ than one-offs.
 ├── share/
 │   └── nvim/              ← the Neovim config, vendored here on purpose
 │       ├── init.vim       ← layers 1 and 2: sources ~/.vimrc, patches Neovim
-│       ├── lua/hikovim/   ← layer 3: init, plugins, lsp, keys
+│       ├── lua/hikovim/   ← layer 3: init, plugins, lsp, keys, ide
 │       └── lazy-lock.json ← the pinned plugin set; written by --freeze
 ├── tests/                 ← the suites; ./tests/run.sh runs them all
 ├── .github/workflows/     ← CI: the only gate on an auto-merged PR
@@ -213,7 +213,8 @@ Three layers, and the layering is the design:
    not viminfo, so `,sp` / `,lp` write `session.nvim` / `shada.nvim` instead of
    clobbering the pair vim wrote
 3. `lua/hikovim/` — lazy.nvim with treesitter, LSP, aerial, gitsigns, lualine,
-   oil, fzf-lua
+   oil, fzf-lua, and `ide.lua`, which arranges those plugins into a four-pane
+   layout rather than adding any
 
 Rules that are easy to break:
 
@@ -223,6 +224,12 @@ Rules that are easy to break:
 - **Layer 3 must stay optional too.** `bootstrap_lazy` returns false rather
   than throwing when git is missing or the clone fails; a freshly landed box
   with no network still opens files.
+- **`ide.lua` owns no plugins.** It places aerial, oil and `:terminal` in
+  windows it built itself, and every call into them is wrapped so that a
+  missing plugin degrades to a notification rather than an error on every
+  keystroke. It also keeps the layout out of the way of the starts where it
+  would be wrong: a `$EDITOR` call from git, `nvim -d`, piped stdin, or a
+  session that restored its own windows.
 - **`performance.rtp.reset = false` in the lazy setup is load-bearing.** lazy
   wipes the runtimepath by default, which would take `~/.vim` with it and lose
   `hiko_color`, DirDiff and filter.vim.
