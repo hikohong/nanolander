@@ -8,6 +8,8 @@
 "                    gone, and shada is not viminfo
 "   3. lua/hikovim   the modern stack — treesitter, LSP, aerial, gitsigns,
 "                    lualine, oil, fzf-lua — managed by lazy.nvim
+"                    lua/hikovim/ide.lua arranges them into the four-pane
+"                    VSCode layout; :IDE, :IDEClose, <F4>
 "
 " Layer 1 is optional. On a machine where hikovim was never installed this
 " file still loads and layers 2 and 3 still work. Layer 3 needs one network

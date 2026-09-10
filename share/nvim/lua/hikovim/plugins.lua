@@ -105,7 +105,12 @@ return {
     cmd = { 'AerialToggle', 'AerialOpen', 'AerialNavToggle' },
     opts = {
       -- Tlist_Use_Right_Window = 1, Tlist_WinWidth = 60
-      layout = { default_direction = 'right', min_width = 40, max_width = 60 },
+      -- resize_to_content would have aerial widen its own window every time
+      -- it redraws, which in the IDE layout drags the 4:1 column ratio around.
+      layout = {
+        default_direction = 'right', min_width = 40, max_width = 60,
+        resize_to_content = false,
+      },
       -- let g:tagbar_sort = 0 — file order, not alphabetical
       filter_kind = false,
       show_guides = true,
@@ -155,7 +160,12 @@ return {
       },
       -- let g:airline#extensions#tabline#enabled = 1
       tabline = {
-        lualine_a = { { 'buffers', mode = 2 } },
+        -- HikovimTabSel and HikovimTab are defined in hikovim/ide.lua, which
+        -- paints the terminal pane's strip with the same two groups. badwolf's
+        -- own inactive colours are too dark to read a filename through.
+        lualine_a = {
+          { 'buffers', mode = 2, buffers_color = { active = 'HikovimTabSel', inactive = 'HikovimTab' } },
+        },
         lualine_z = { 'tabs' },
       },
       extensions = { 'aerial', 'quickfix', 'lazy' },

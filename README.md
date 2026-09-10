@@ -403,8 +403,39 @@ Muscle memory wins. Only the mappings whose vim plugin no longer exists are rebo
 | `<C-\>t` `<C-\>e` | text and pattern search | ripgrep through fzf-lua |
 | `<C-\>f` `<C-\>i` | this file, files including it | fzf-lua file and grep pickers |
 | `<F5>` | (commented out) `:NERDTreeToggle` | `:Oil` |
+| `<F4>` | (commented out) `JumpToTagList()` | the IDE layout, on and off |
+| `<F6>` | free | the terminal pane; again for the next shell in it |
+| `<F7>` | free | one more shell in the terminal pane |
 
 Everything else — `,sp`, `,lp`, `,ic`, `,f`, `,F`, `<space>`, `<backspace>`, `<C-h>`, `<C-Z>` — comes straight from `~/.vimrc` and behaves as it always did. New maps only go on keys the vim configuration leaves free: `,gb`, `,gp`, `,ff`, `,fg`, `,fb`, `,fd`, `]c`, `[c`.
+
+### The IDE layout
+
+`lua/hikovim/ide.lua` arranges the plugins above into four panes and starts that way on `nvim` and `nvim file`. It adds no plugins of its own.
+
+```
+┌──────────────────────────┬───────────────┐
+│  file contents           │ function list │  aerial.nvim
+│  (the editor)            │               │
+│                          ├───────────────┤
+├──────────────────────────┤ file explorer │  oil.nvim
+│  1 zsh ✕  2 zsh ✕  +     │               │
+│  the terminals           │               │
+└──────────────────────────┴───────────────┘
+        left : right = 4 : 1
+```
+
+| Command | What it does |
+| --- | --- |
+| `:IDE` / `:IDEClose` | build the layout, or drop the panels and keep the file |
+| `:IDETerm` / `:IDETerm!` | the terminal pane, or one more shell in it |
+| `:BufClose` / `:BufClose!` | close this tab, buffer and all — what `:q` runs |
+
+Only the editor pane ever shows file contents. `<CR>` or a double click in the explorer opens the file up there and walks directories in place; anything else that opens a file inside a panel — an fzf-lua pick, a quickfix jump, `gf` — is moved out of it. `:copen` lands inside the editor column rather than across the whole screen, which is the one shape the layout cannot absorb.
+
+Both strips of tabs close the same way: the `✕` on a tab, or `:q` in the pane it belongs to. `:q` in the editor pane closes the file, `:q` in the terminal pane closes that shell, and `:qa`, `:wq`, `:x` and `:1,2q` are left to vim. Closing the last file quits, closing the last shell closes the terminal pane, and `<F6>` brings that pane back.
+
+The layout sets `mouse=a`, since `mouse=n` cannot click out of a terminal — terminal mode is not normal mode. Set `MOUSE = nil` at the top of `ide.lua` to keep whatever `~/.vimrc` chose, or `let g:hikovim_ide_auto = 0` to start with a plain single window and reach the layout with `<F4>`.
 
 ### Things worth knowing
 
@@ -414,6 +445,7 @@ Everything else — `,sp`, `,lp`, `,ic`, `,f`, `,F`, `<space>`, `<backspace>`, `
 - **Treesitter highlighting does not look pixel-identical to vim**, because it paints with `@capture` groups rather than the ones `hiko_color` was tuned for. Set `TS_HIGHLIGHT = false` at the top of `lua/hikovim/plugins.lua` to keep treesitter for folds only.
 - **`,sp` and `,lp` write `session.nvim` and `shada.nvim`**, not `session.vim` and `viminfo.vim`. Neovim's info file is msgpack shada and vim's is text, so sharing one pair would leave whichever editor wrote last unreadable to the other.
 - **Completion is on demand** (`<C-x><C-o>`), not as you type, matching the reason `~/.vimrc` turned OmniCppComplete's popup off.
+- **The layout stays out of the way where it would be wrong.** It does not start for a `$EDITOR` call from git, `nvim -d`, piped stdin, or a session that restored its own windows.
 - **A running Neovim keeps its old configuration** until you restart it. That is harmless, so unlike `bin/iterm-tune` this script does not refuse to write while the program is open.
 
 ---
