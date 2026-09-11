@@ -528,28 +528,30 @@ end
 -- and with the layout off this hands straight back to neo-tree.
 --
 -- enforce stays the backstop for anything that still lands in a panel.
----@param args table neo-tree's event argument: path, open_cmd, bufnr, state
----@return table|nil result `{ handled = true }` when the file was placed here
-function M.tree_open_request(args)
-  if not (type(args) == 'table' and type(args.path) == 'string' and args.path ~= '') then
-    return nil
-  end
-  if (args.open_cmd or 'edit') ~= 'edit' then return nil end
-  if not alive(state.editor) then return nil end
+--
+-- open_in_editor does the placing. `focus` is false for the click that only
+-- previews: see tree_click.
+---@param path string
+---@param bufnr number|nil an existing buffer for that path, when there is one
+---@param focus boolean leave the cursor in the editor pane
+---@return boolean placed
+local function open_in_editor(path, bufnr, focus)
+  if not alive(state.editor) then return false end
 
-  local buf = args.bufnr
+  local buf = bufnr
   if not (type(buf) == 'number' and buf > 0 and vim.api.nvim_buf_is_valid(buf)) then
     -- bufadd rather than :edit: a buffer number has nothing to escape, which is
     -- the trap neo-tree's own comment on this warns about.
-    buf = vim.fn.bufadd(args.path)
+    buf = vim.fn.bufadd(path)
   end
-  if buf <= 0 then return nil end
+  if buf <= 0 then return false end
 
+  local here = vim.api.nvim_get_current_win()
   -- show_in_editor sets the editor pane's buffer, which is also what makes that
   -- window current for the BufWinEnter it fires — and that event is the one
   -- image.nvim reads to decide where to draw.
   local ok, placed = pcall(show_in_editor, buf)
-  if not (ok and placed) then return nil end
+  if not (ok and placed) then return false end
 
   -- neo-tree lists whatever it opened, and taking the open away from it took
   -- that with it. A file asked for by name belongs in the tabline even when a
@@ -558,27 +560,61 @@ function M.tree_open_request(args)
   -- the tree came up with no tab. show_in_editor's own rule is deliberately
   -- left alone: it also serves enforce, which moves buffers nobody asked for.
   vim.bo[buf].buflisted = true
+
+  if not focus and alive(here) then vim.api.nvim_set_current_win(here) end
+  return true
+end
+
+---@param args table neo-tree's event argument: path, open_cmd, bufnr, state
+---@return table|nil result `{ handled = true }` when the file was placed here
+function M.tree_open_request(args)
+  if not (type(args) == 'table' and type(args.path) == 'string' and args.path ~= '') then
+    return nil
+  end
+  if (args.open_cmd or 'edit') ~= 'edit' then return nil end
+  if not open_in_editor(args.path, args.bufnr, true) then return nil end
   return { handled = true }
 end
 
--- The explorer pane needs no <CR> of its own: neo-tree expands and collapses a
--- directory in place, and a file goes through tree_open_request above.
+-- video_path — the file under a tree node, when that file is a video.
 --
--- It does need a single click. neo-tree binds <2-LeftMouse> and nothing else,
--- so one click only moved the cursor, which is indistinguishable from a pane
--- that does not work.
---
--- tree_click delegates to whatever <CR> is bound to in that buffer rather than
--- calling into neo-tree's own command modules. The click has already moved the
--- cursor by the time <LeftRelease> is processed, so <CR>'s handler is looking
--- at the line that was clicked, and this keeps working if neo-tree renames
--- anything behind its keymaps.
-local function tree_click()
-  local m = vim.fn.maparg('<CR>', 'n', false, true)
-  if m and m.callback then pcall(m.callback) end
+-- video.lua owns the extension list and answers this, because a second copy of
+-- it means a container gets a preview and no player, or the reverse.
+local function video_path(node)
+  local path = (node and node.type == 'file') and node.path or nil
+  if not path then return nil end
+  local ok, video = pcall(require, 'hikovim.video')
+  if not (ok and video.is_video(path)) then return nil end
+  return path
 end
 
--- tree_double_click — a double click on a video hands it to the system player.
+-- node_of — the node under the cursor in a neo-tree state.
+local function node_of(tree_state)
+  if not (type(tree_state) == 'table' and tree_state.tree) then return nil end
+  local ok, node = pcall(function() return tree_state.tree:get_node() end)
+  return ok and node or nil
+end
+
+-- tree_node — the node under the cursor in the explorer pane.
+--
+-- neo-tree hands its own commands a state to read this from; a plain keymap
+-- like tree_click has to go and ask for one, and it has to ask the right way.
+-- get_state('filesystem') returns the state held *for the tab*, and this tree
+-- is at position 'current', whose state is held per window — so that call
+-- answered a freshly created empty state with no tree in it, tree_click saw no
+-- node, and every click fell through to <CR> and started a player.
+-- get_state_for_window reads neo_tree_source and neo_tree_position off the
+-- buffer and picks the right one of the two. Wrapped, because a neo-tree that
+-- is not loaded must cost a click rather than an error.
+local function tree_node()
+  local ok, manager = pcall(require, 'neo-tree.sources.manager')
+  if not ok then return nil end
+  local got, tree_state = pcall(manager.get_state_for_window)
+  if not got then return nil end
+  return node_of(tree_state)
+end
+
+-- hand_to_player — what to do with a video, which is not to play it here.
 --
 -- video.lua previews a video and deliberately plays nothing: a sixel frame is
 -- painted on the terminal rather than owned by a buffer, so 24 fps of them
@@ -589,28 +625,7 @@ end
 -- — which on a machine that has run bin/vlc-default is VLC. Nothing here names
 -- VLC: that binding belongs to the system, and saying it twice is how the two
 -- come apart.
---
--- The single click still previews. A double click sends <LeftRelease> twice
--- with <2-LeftMouse> between them, so the preview opens and then the player
--- does, which is the order those two clicks read in.
---
--- Only a video is taken. A directory to expand, and every other file, goes to
--- neo-tree's own open, so the double click keeps doing what neo-tree documents.
---
----@param tree_state table neo-tree's state for the source the mapping fired in
-function M.tree_double_click(tree_state)
-  local node = tree_state and tree_state.tree and tree_state.tree:get_node()
-  local path = (node and node.type == 'file') and node.path or nil
-
-  local ok, video = pcall(require, 'hikovim.video')
-  if not (path and ok and video.is_video(path)) then
-    -- Not ours: let neo-tree do what a double click has always done.
-    pcall(function()
-      require('neo-tree.sources.filesystem.commands').open(tree_state)
-    end)
-    return
-  end
-
+local function hand_to_player(path)
   -- vim.ui.open answers nil and a reason rather than throwing, and a box with
   -- no desktop is exactly that case — over SSH there is nothing to hand a file
   -- to. Say so; silence here is indistinguishable from a click that missed.
@@ -620,6 +635,55 @@ function M.tree_double_click(tree_state)
       vim.fn.fnamemodify(path, ':t'), err or 'no handler for this file type'),
       vim.log.levels.WARN)
   end
+end
+
+-- tree_open — <CR> and the double click in the explorer pane. A video goes to
+-- the system player; everything else — a directory to expand, any other file —
+-- goes to neo-tree's own open, so both keep doing what neo-tree documents.
+--
+-- Both are bound, because both mean "I have chosen this one". A single click
+-- means "show me this one", which is tree_click below.
+---@param tree_state table neo-tree's state for the source the mapping fired in
+function M.tree_open(tree_state)
+  local path = video_path(node_of(tree_state))
+  if not path then
+    pcall(function()
+      require('neo-tree.sources.filesystem.commands').open(tree_state)
+    end)
+    return
+  end
+  hand_to_player(path)
+end
+
+-- The explorer pane needs no <CR> of its own for anything but a video: neo-tree
+-- expands and collapses a directory in place, and a file goes through
+-- tree_open_request above.
+--
+-- It does need a single click. neo-tree binds <2-LeftMouse> and nothing else,
+-- so one click only moved the cursor, which is indistinguishable from a pane
+-- that does not work.
+--
+-- For anything but a video, tree_click delegates to whatever <CR> is bound to
+-- in that buffer rather than calling into neo-tree's own command modules. The
+-- click has already moved the cursor by the time <LeftRelease> is processed, so
+-- <CR>'s handler is looking at the line that was clicked, and this keeps
+-- working if neo-tree renames anything behind its keymaps.
+--
+-- A video is the exception, and for two reasons that point the same way. One
+-- click means "show me this one", so it previews rather than starting a player.
+-- And it must leave the cursor in the tree, because a mouse mapping is looked
+-- up in the buffer that is current when the key is processed: the first click
+-- of a double click used to open the preview *and* jump to the editor pane,
+-- where <2-LeftMouse> is not mapped, so the second click reached nothing and
+-- the double click did nothing at all.
+local function tree_click()
+  local path = video_path(tree_node())
+  if path then
+    open_in_editor(path, nil, false)
+    return
+  end
+  local m = vim.fn.maparg('<CR>', 'n', false, true)
+  if m and m.callback then pcall(m.callback) end
 end
 
 -- outline_select — the same rule for the top-right pane: aerial jumps in the

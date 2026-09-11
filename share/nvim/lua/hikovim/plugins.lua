@@ -211,24 +211,7 @@ return {
     opts = {
       -- The layout owns the window, so neo-tree must render into the one it
       -- is given rather than opening a sidebar of its own.
-      window = {
-        position = 'current',
-        -- A double click on a video hands it to the system player instead of
-        -- previewing it: `open` on macOS, so the LaunchServices binding decides
-        -- — VLC on a machine that has run bin/vlc-default. The single click and
-        -- <CR> still preview, and every other file keeps neo-tree's own open.
-        -- See ide.tree_double_click.
-        mappings = {
-          ['<2-LeftMouse>'] = {
-            function(state)
-              local ok, ide = pcall(require, 'hikovim.ide')
-              if not ok then return end
-              ide.tree_double_click(state)
-            end,
-            desc = 'open — a video goes to the system player',
-          },
-        },
-      },
+      window = { position = 'current' },
       -- Never take the session down: the layout decides what happens when the
       -- last file closes, in ide.lua's editor_gone.
       close_if_last_window = false,
@@ -261,6 +244,29 @@ return {
         },
       },
       filesystem = {
+        -- <CR> and a double click on a video hand it to the system player
+        -- instead of previewing it: `open` on macOS, so the LaunchServices
+        -- binding decides — VLC on a machine that has run bin/vlc-default. Both
+        -- are bound because both mean "I have chosen this one"; a single click
+        -- means "show me this one" and still previews. Every other file, and a
+        -- directory, keep neo-tree's own open. See ide.tree_open.
+        --
+        -- Bound on the source rather than globally: the fall-through calls the
+        -- filesystem source's own open, so this must not reach a source that
+        -- would be handed the wrong one.
+        window = {
+          mappings = (function()
+            local choose = {
+              function(state)
+                local ok, ide = pcall(require, 'hikovim.ide')
+                if not ok then return end
+                ide.tree_open(state)
+              end,
+              desc = 'open — a video goes to the system player',
+            }
+            return { ['<CR>'] = choose, ['<2-LeftMouse>'] = choose }
+          end)(),
+        },
         -- oil is the netrw replacement. Two plugins claiming it is how you
         -- get a directory opening in whichever one loaded last.
         hijack_netrw_behavior = 'disabled',

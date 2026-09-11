@@ -227,9 +227,14 @@ chk "through the editor pane"      "$(grep -c 'pcall(show_in_editor, buf)' "$IDE
 chk "splits are left alone"        "$(grep -c "open_cmd or 'edit') ~= 'edit'" "$IDE")" "1"
 # With the layout off there is no editor pane to aim at, and neo-tree's own
 # logic is right.
-chk "no layout hands back"         "$(grep -c 'if not alive(state.editor) then return nil end' "$IDE")" "1"
+chk "no layout hands back" \
+  "$(grep -c 'if not open_in_editor(args.path, args.bufnr, true) then return nil end' "$IDE")" "1"
+# Both places that put a buffer in the editor pane check the pane is there:
+# show_in_editor for enforce, open_in_editor for a file chosen in the tree.
+chk "and both check for the pane" \
+  "$(grep -c 'if not alive(state.editor) then return false end' "$IDE")" "2"
 # A buffer number has nothing to escape; a path handed to :edit does.
-chk "the path is not re-escaped"   "$(grep -c 'vim.fn.bufadd(args.path)' "$IDE")" "1"
+chk "the path is not re-escaped"   "$(grep -c 'vim.fn.bufadd(path)' "$IDE")" "1"
 # Taking the open away from neo-tree took its buflisted with it, and the tab
 # for an image went with that: image.nvim sets buftype=nowrite during the very
 # BufWinEnter that displays the buffer, so show_in_editor's `buftype == ''`
@@ -243,15 +248,25 @@ chk "and enforce keeps its own rule" \
 # quickfix jump, gf, :bnext.
 chk "enforce is still there"       "$(grep -c 'function M.enforce' "$IDE")" "1"
 
-# --- a double click on a video hands it to the system player ----------------
+# --- choosing a video hands it to the system player -------------------------
 # video.lua previews and deliberately plays nothing: 24 fps of sixel is 14 MB/s
 # of escape sequences and the statusline tears through every frame. What it says
-# to do instead is hand the file to something that watches files, and the double
-# click is that. The single click and <CR> still preview.
+# to do instead is hand the file to something that watches files.
+#
+# <CR> and the double click both mean "I have chosen this one", so both are
+# bound. A single click means "show me this one" and still previews. Only
+# binding the double click left Enter opening the preview and nothing else,
+# which is half the feature.
 chk "the double click is claimed" \
-  "$(grep -c "\['<2-LeftMouse>'\]" "$PLUGINS")" "1"
-chk "and the layout answers it"    "$(grep -c 'ide.tree_double_click(state)' "$PLUGINS")" "1"
-chk "the handler exists"           "$(grep -c 'function M.tree_double_click' "$IDE")" "1"
+  "$(grep -c "\['<2-LeftMouse>'\] = choose" "$PLUGINS")" "1"
+chk "and so is Enter"              "$(grep -c "\['<CR>'\] = choose" "$PLUGINS")" "1"
+chk "the layout answers both"      "$(grep -c 'ide.tree_open(state)' "$PLUGINS")" "1"
+chk "the handler exists"           "$(grep -c 'function M.tree_open(' "$IDE")" "1"
+# Bound on the filesystem source, not globally: the fall-through calls that
+# source's own open, so it must not reach a source that would be handed the
+# wrong one. The global window block staying a one-liner is what says so.
+chk "the global window has none" \
+  "$(grep -c "window = { position = 'current' }," "$PLUGINS")" "1"
 # vim.ui.open is `open` on macOS and `xdg-open` on a Linux desktop, so the file
 # goes to whatever owns the type. Naming VLC here as well as in vlc-default is
 # how the two come apart: the binding belongs to the system.
@@ -262,13 +277,29 @@ chk "and names no player itself" \
 chk "it asks video.lua"            "$(grep -c 'video.is_video(path)' "$IDE")" "1"
 chk "which exports the answer"     "$(grep -c 'function M.is_video' "$VIDEO_LUA")" "1"
 # A directory to expand and every other file keep doing what neo-tree
-# documents, so the double click is not taken away from them.
+# documents, so neither key is taken away from them.
 chk "anything else falls through" \
   "$(grep -c "require('neo-tree.sources.filesystem.commands').open(tree_state)" "$IDE")" "1"
 # vim.ui.open answers nil and a reason rather than throwing, and a box with no
 # desktop is that case. Silence there is indistinguishable from a missed click.
 chk "a box with no desktop is told" "$(grep -c 'cannot open %s' "$IDE")" "1"
 chk "and pointed at mpv"            "$(grep -c 'mpv --vo=tct' "$IDE")" "1"
+
+# A mouse mapping is looked up in the buffer that is current when the key is
+# processed. The first click of a double click opened the preview and jumped to
+# the editor pane, where <2-LeftMouse> is not mapped — so the second click
+# reached nothing and the double click did nothing at all. A video previews
+# without taking the cursor out of the tree, which is what keeps the second
+# click on a buffer that has the mapping.
+chk "a previewed video keeps focus" "$(grep -c 'open_in_editor(path, nil, false)' "$IDE")" "1"
+chk "focus is restored, not moved"  "$(grep -c 'if not focus and alive(here)' "$IDE")" "1"
+# get_state('filesystem') returns the state held for the *tab*, and this tree is
+# at position 'current', whose state is held per window. That call answered a
+# freshly created empty state, tree_click found no node, and every single click
+# fell through to <CR> and started a player. get_state_for_window reads
+# neo_tree_position off the buffer and picks the right one of the two.
+chk "the state is asked per window" "$(grep -c 'manager.get_state_for_window' "$IDE")" "1"
+chk "and never per tab"             "$(grep -c "get_state, 'filesystem'" "$IDE")" "0"
 
 LOCK="$SRC_DIR/lazy-lock.json"
 for plugin in neo-tree.nvim flatten.nvim nui.nvim plenary.nvim oil.nvim image.nvim; do
