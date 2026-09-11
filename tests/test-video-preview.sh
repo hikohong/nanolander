@@ -68,6 +68,18 @@ out:write('duration=' .. tostring(duration) .. '\n')
 local sparse = v.describe('/tmp/odd.mkv', 'codec_name=theora')
 out:write('sparse_lines=' .. #sparse .. '\n')
 for i, l in ipairs(sparse) do out:write('sparse' .. i .. '=' .. l .. '\n') end
+
+-- is_video answers the double click in the tree, and PATTERNS answers the
+-- BufReadCmd. One list, so a container cannot get a preview and no player.
+for _, case in ipairs({
+  { 'lower', 'a.mp4' }, { 'upper', 'A.MP4' }, { 'mkv', 'x.MKV' },
+  { 'text', 'n.txt' }, { 'image', 'p.png' },
+  { 'bare', '.mp4' }, { 'noext', 'plain' },
+  { 'indir', '/tmp/dir.mkv/file.txt' },
+  { 'nil', nil }, { 'empty', '' },
+}) do
+  out:write('isvideo_' .. case[1] .. '=' .. tostring(v.is_video(case[2])) .. '\n')
+end
 out:close()
 LUA
 
@@ -87,6 +99,26 @@ LUA
   # and the line vanishes entirely when nothing on it came back.
   chk "a sparse file still formats" "$(got sparse_lines=)" "sparse_lines=2"
   chk "and prints only what it has" "$(got sparse2=)" "sparse2=  theora"
+
+  # is_video is what the double click in the tree asks, and it reads the same
+  # PATTERNS the BufReadCmd does — one list, or a container gets a preview and
+  # no player, or the reverse.
+  chk "a video is one"              "$(got isvideo_lower=)" "isvideo_lower=true"
+  # A file off a camera or a screen recorder is often shouted.
+  chk "case does not matter"        "$(got isvideo_upper=)" "isvideo_upper=true"
+  chk "so is .MKV"                  "$(got isvideo_mkv=)"   "isvideo_mkv=true"
+  chk "a text file is not"          "$(got isvideo_text=)"  "isvideo_text=false"
+  # Images have their own path — image.nvim draws them in the editor pane.
+  chk "nor is an image"             "$(got isvideo_image=)" "isvideo_image=false"
+  # A name that is nothing but the extension is a dotfile, not a video.
+  chk "nor a bare extension"        "$(got isvideo_bare=)"  "isvideo_bare=false"
+  chk "nor a name without one"      "$(got isvideo_noext=)" "isvideo_noext=false"
+  # Matching the whole path would hand a text file to the player because a
+  # directory above it happens to be called something.mkv.
+  chk "only the name is read"       "$(got isvideo_indir=)" "isvideo_indir=false"
+  # The tree can hand over a node with no path at all.
+  chk "nil is not a video"          "$(got isvideo_nil=)"   "isvideo_nil=false"
+  chk "nor is an empty name"        "$(got isvideo_empty=)" "isvideo_empty=false"
 fi
 
 finish
