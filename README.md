@@ -195,15 +195,19 @@ merge.conflictStyle = zdiff3
 
 If either `git` or `delta` is missing, the script prints a warning and skips it rather than writing the configuration.
 
-### `--with-nvim-config`
+### `--without-nvim-config`
 
-Install the Neovim configuration too, by handing off to `./bin/nvim-land --apply` once the tools are in. Without it the editor is installed but left unconfigured, which is what the separate helper is for.
+The Neovim configuration is installed **by default**, by handing off to `./bin/nvim-land --apply` once the tools are in — landing the whole toolkit and then finding a stock editor is the surprise, not the other way round. This flag opts out and leaves `~/.config/nvim` alone.
 
 ```bash
-./bin/nanolander --with-nvim-config
+./bin/nanolander --without-nvim-config
 ```
 
-Skipped with a warning when Neovim itself is not installed, and when the helper cannot be found beside this script — it ships in the checkout, so a copy of `bin/nanolander` on its own does not have it.
+A run that filters Neovim out with `--only` or `--skip` does not configure it either, since `--only tmux` promises to touch only tmux. `--with-nvim-config` is still accepted and now does nothing, so an existing script or note keeps working.
+
+Skipped with a warning when Neovim itself is not installed, and when the helper cannot be found beside this script — it ships in the checkout, so a copy of `bin/nanolander` on its own does not have it. Neither case changes the exit code: the configuration is not one of the tools being counted.
+
+Undo it with `./bin/nvim-land --restore`; the previous `~/.config/nvim` is copied into `~/.nanolander-backups` before anything is written.
 
 ### `--restore-shell`
 
@@ -353,7 +357,7 @@ yazi renders text, code and common raster images itself. Everything else it hand
 
 ## Neovim configuration
 
-`bin/nanolander` installs Neovim; `bin/nvim-land` configures it. They are separate steps because a configuration is an opinion, and installing a binary is not.
+`bin/nanolander` installs Neovim and, as part of a normal run, this configuration with it — a toolkit that lands a modern editor and leaves it stock is not the same environment. `bin/nvim-land` is that step on its own, which is how you inspect it, redo it, or undo it. Opt out of the automatic install with `--without-nvim-config`.
 
 ```bash
 ./bin/nvim-land              # report only, changes nothing
@@ -773,7 +777,7 @@ When an install fails, search the log by tool name to find the relevant section,
 - **Re-running**: the script is safe to run repeatedly. Tools already present show as `existing`, and shell configuration is never added twice.
 - **Boxes instead of icons**: the font is installed but your terminal is still set to something else. See [Terminal font](#terminal-font).
 - **Neovide on a server**: Neovide is a GUI client and needs a desktop. On a headless box install it if you like, but there is nothing to display; `--skip neovide` keeps the summary tidy. On Linux it is only built for `x86_64`, and elsewhere it is reported `SKIPPED (platform)`.
-- **Neovim configuration**: installing Neovim does not configure it. Run `./bin/nvim-land` for a report, then `--apply`. See [Neovim configuration](#neovim-configuration).
+- **Neovim configuration**: a normal run installs it. If `~/.config/nvim` looks untouched, check whether the run filtered Neovim out with `--only` or `--skip`, or was given `--without-nvim-config`; `./bin/nvim-land` reports what is missing and `--apply` installs it. See [Neovim configuration](#neovim-configuration).
 - **Changing your mind**: see [Undoing a run](#undoing-a-run). Shell config files are backed up before the first write of every run.
 
 ---
