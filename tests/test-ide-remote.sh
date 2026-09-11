@@ -196,6 +196,43 @@ chk "it is gated on a terminal"   "$(grep -c 'nvim_list_uis() > 0' "$PLUGINS")" 
 # missing feature costs the whole thing.
 chk "and errs toward loading"     "$(grep -c "has('ttyout')" "$PLUGINS")" "1"
 
+# A picture appeared in the explorer pane as well as the editor pane, and only
+# sometimes. neo-tree sits in that pane at position 'current', and its open_file
+# reads that literally: for 'current' it skips the window search — so
+# open_files_do_not_replace_types never gets a say — and runs :buffer in the
+# window it is already in. Every file opened from the tree was therefore
+# displayed in the explorer pane first, with enforce moving it a turn of the
+# loop later. Invisible for text; for an image, image.nvim hijacks on
+# BufWinEnter, so it bound an image to the *explorer* window and started
+# drawing, and a sixel is painted on the terminal rather than owned by a buffer
+# — its renderer bails out of a window that no longer shows the buffer without
+# clearing what it already painted. Which of the two won the race is why it was
+# intermittent.
+#
+# So the layout answers file_open_requested and opens the file in the editor
+# pane itself, and the buffer is never displayed in a panel at all.
+chk "the tree asks before it opens" \
+  "$(grep -c "event = 'file_open_requested'" "$PLUGINS")" "1"
+chk "and the layout answers"       "$(grep -c 'ide.tree_open_request(args)' "$PLUGINS")" "1"
+chk "the handler exists"           "$(grep -c 'function M.tree_open_request' "$IDE")" "1"
+# handled = true is neo-tree's documented contract for "do nothing further".
+# Without it neo-tree opens the file again, in its own window, and the bug is
+# back with an extra buffer switch in front of it.
+chk "it claims the open"           "$(grep -c 'return { handled = true }' "$IDE")" "1"
+# show_in_editor is what makes the editor pane current for the BufWinEnter it
+# fires, and that event is the one image.nvim reads to decide where to draw.
+chk "through the editor pane"      "$(grep -c 'pcall(show_in_editor, buf)' "$IDE")" "1"
+# S, s and t still split and open tabs: only the plain open is taken.
+chk "splits are left alone"        "$(grep -c "open_cmd or 'edit') ~= 'edit'" "$IDE")" "1"
+# With the layout off there is no editor pane to aim at, and neo-tree's own
+# logic is right.
+chk "no layout hands back"         "$(grep -c 'if not alive(state.editor) then return nil end' "$IDE")" "1"
+# A buffer number has nothing to escape; a path handed to :edit does.
+chk "the path is not re-escaped"   "$(grep -c 'vim.fn.bufadd(args.path)' "$IDE")" "1"
+# enforce is still the backstop for every other route into a panel — fzf-lua, a
+# quickfix jump, gf, :bnext.
+chk "enforce is still there"       "$(grep -c 'function M.enforce' "$IDE")" "1"
+
 LOCK="$SRC_DIR/lazy-lock.json"
 for plugin in neo-tree.nvim flatten.nvim nui.nvim plenary.nvim oil.nvim image.nvim; do
   chk "lockfile pins $plugin" "$(grep -c "\"$plugin\":" "$LOCK")" "1"
