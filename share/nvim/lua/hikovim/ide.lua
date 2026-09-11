@@ -550,6 +550,14 @@ function M.tree_open_request(args)
   -- image.nvim reads to decide where to draw.
   local ok, placed = pcall(show_in_editor, buf)
   if not (ok and placed) then return nil end
+
+  -- neo-tree lists whatever it opened, and taking the open away from it took
+  -- that with it. A file asked for by name belongs in the tabline even when a
+  -- preview plugin has made the buffer nowrite — and image.nvim does exactly
+  -- that, during the very BufWinEnter that displays it, so an image clicked in
+  -- the tree came up with no tab. show_in_editor's own rule is deliberately
+  -- left alone: it also serves enforce, which moves buffers nobody asked for.
+  vim.bo[buf].buflisted = true
   return { handled = true }
 end
 
