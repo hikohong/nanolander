@@ -237,6 +237,22 @@ Rules that are easy to break:
   design and cannot be a tree. So neo-tree must keep
   `hijack_netrw_behavior = 'disabled'`: two plugins claiming netrw means a
   directory opens in whichever loaded last.
+- **iTerm2 does not speak the Kitty graphics protocol, and every Neovim image
+  plugin does.** snacks.nvim has no iTerm2 path at all; image.nvim defaults to
+  kitty. iTerm2 speaks sixel, so `backend = 'sixel'` is load-bearing — that is
+  the only reason images render at all here. `backend = 'kitty'` is the one line
+  to change on Ghostty/Kitty/WezTerm, and is faster.
+- **`processor = 'magick_cli'`, and lazy's rocks are off.** image.nvim's
+  rockspec asks for the `magick` Lua rock; lazy answers by bootstrapping
+  hererocks, which wants Python and a compiler. `rocks = { enabled = false }` in
+  `init.lua` keeps that off a freshly landed box, and the CLI processor uses the
+  ImageMagick the catalog installs instead. The lockfile must not gain a
+  `hererocks` entry; there is a test for that.
+- **image.nvim is gated on there being a terminal to draw into**, because it
+  prints `cannot query terminal size` on every headless start otherwise, which
+  lands in `:messages` and breaks both scripting and the clean-load check. The
+  gate takes either `nvim_list_uis()` or `has('ttyout')`: the failure modes are
+  asymmetric, so it errs toward loading.
 - **lualine invents a tabline entry for an unlisted current buffer.** Focus a
   panel and it appears as a tab — `[No Name]` for the outline — with the ✕ that
   `add_tabline_close_button` adds, and that ✕ ran `:q` on the pane. `is_current`

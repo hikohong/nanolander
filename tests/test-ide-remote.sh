@@ -165,9 +165,41 @@ chk "netrw is left to oil"           "$(grep -c "hijack_netrw_behavior = 'disabl
 # treat a window id as a buffer number and throw on every open.
 chk "the handler returns buffer first" "$(grep -c 'return focus.bufnr, target' "$PLUGINS")" "1"
 
+# --- images in the editor pane ----------------------------------------------
+INIT="$SRC_DIR/lua/hikovim/init.lua"
+chk "image.nvim is installed"     "$(grep -c "3rd/image.nvim" "$PLUGINS")" "1"
+# The backend is the whole point. Every Neovim image plugin draws with the Kitty
+# graphics protocol, which iTerm2 does not speak — it has its own inline-images
+# protocol, which is why yazi can show an image where these plugins cannot.
+# Sixel is the one language both sides know.
+chk "the backend is sixel"        "$(grep -c "backend = 'sixel'" "$PLUGINS")" "1"
+# Comments excluded: the kitty backend is named in prose as the upgrade path
+# for anyone who moves to a terminal that speaks the protocol.
+chk "not the kitty default" \
+  "$(grep -v '^[[:space:]]*--' "$PLUGINS" | grep -c "backend = 'kitty'")" "0"
+# magick_cli shells out to the ImageMagick nanolander installs; the other
+# processor wants a LuaRocks build of the magick rock.
+chk "no luarock is needed"        "$(grep -c "processor = 'magick_cli'" "$PLUGINS")" "1"
+# Opening one of these has to show the picture rather than the bytes.
+chk "image files are hijacked"    "$(grep -c 'hijack_file_patterns' "$PLUGINS")" "1"
+# A sixel image is painted on the terminal, not owned by a buffer, so in a
+# four-pane layout it has to be cleared when a window moves over it.
+chk "overlap is cleared"          "$(grep -c 'window_overlap_clear_enabled = true' "$PLUGINS")" "1"
+# image.nvim's rockspec asks for the magick rock, and lazy answers it by
+# bootstrapping hererocks — a LuaRocks build wanting Python and a compiler, on a
+# box whose whole point is that it just lands.
+chk "lazy's rocks are off"        "$(grep -c 'rocks = { enabled = false' "$INIT")" "1"
+# Headless printed "cannot query terminal size" on every start, which put a line
+# into :messages that scripts and the clean-load check both read.
+chk "it is gated on a terminal"   "$(grep -c 'nvim_list_uis() > 0' "$PLUGINS")" "1"
+# Erring toward loading: a missing warning line costs nothing, a silently
+# missing feature costs the whole thing.
+chk "and errs toward loading"     "$(grep -c "has('ttyout')" "$PLUGINS")" "1"
+
 LOCK="$SRC_DIR/lazy-lock.json"
-for plugin in neo-tree.nvim flatten.nvim nui.nvim plenary.nvim oil.nvim; do
+for plugin in neo-tree.nvim flatten.nvim nui.nvim plenary.nvim oil.nvim image.nvim; do
   chk "lockfile pins $plugin" "$(grep -c "\"$plugin\":" "$LOCK")" "1"
 done
+chk "and pins no luarocks bootstrap" "$(grep -c '"hererocks":' "$LOCK")" "0"
 
 finish

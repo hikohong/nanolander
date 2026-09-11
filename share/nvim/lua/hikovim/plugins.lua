@@ -238,6 +238,64 @@ return {
   },
 
   -----------------------------------------------------------------------
+  -- Images in the editor pane  ->  image.nvim, over sixel.
+  --
+  -- Click a .png in the tree and the picture appears where the file contents
+  -- would, the way yazi previews one.
+  --
+  -- The backend is the whole story here. Every Neovim image plugin draws with
+  -- the Kitty graphics protocol — snacks.nvim has no iTerm2 code path at all,
+  -- and image.nvim's default is kitty too. iTerm2 does not speak that; it has
+  -- its own inline-images protocol, which is why yazi can show images here and
+  -- these plugins cannot. What iTerm2 *does* speak is sixel, and sixel is
+  -- image.nvim's third backend. It is an escape sequence like the others, so it
+  -- survives SSH.
+  --
+  -- Sixel is the slow one — image.nvim says so itself. If it drags, or you move
+  -- to a terminal that speaks the Kitty protocol (Ghostty, Kitty, WezTerm),
+  -- `backend = 'kitty'` is the only line that changes.
+  -----------------------------------------------------------------------
+  {
+    '3rd/image.nvim',
+    lazy = false,
+    -- Nothing to draw into without a UI, and it says so out loud: a headless
+    -- Neovim printed "cannot query terminal size" on every start, which put a
+    -- line in :messages that both scripts and the clean-load check read.
+    --
+    -- Two signals, either of which is enough, because the failure modes are not
+    -- symmetric: loading this where it cannot draw costs one warning line,
+    -- while failing to load it in a real terminal means the feature silently
+    -- does not exist. So it errs toward loading.
+    cond = function()
+      return #vim.api.nvim_list_uis() > 0 or vim.fn.has('ttyout') == 1
+    end,
+    dependencies = { 'nvim-lua/plenary.nvim' },
+    opts = {
+      backend = 'sixel',
+      -- Shells out to ImageMagick's identify and convert, which nanolander
+      -- installs. The other processor wants a LuaRocks build of the magick
+      -- rock, which is a build toolchain for no gain here.
+      processor = 'magick_cli',
+      -- Opening one of these shows the picture rather than the bytes. This is
+      -- the setting the whole thing rests on.
+      hijack_file_patterns = {
+        '*.png', '*.jpg', '*.jpeg', '*.gif', '*.webp', '*.avif', '*.bmp',
+      },
+      -- Four panes means windows are always next to each other, and a sixel
+      -- image is painted on the terminal rather than owned by a buffer: without
+      -- this it stays on screen over whatever moves in front of it.
+      window_overlap_clear_enabled = true,
+      -- Fill the editor pane. The default gives an image half the height.
+      max_width_window_percentage = 100,
+      max_height_window_percentage = 100,
+      -- Do not keep drawing into a terminal that is not being looked at.
+      editor_only_render_when_focused = true,
+      tmux_show_only_in_active_window = true,
+      integrations = { markdown = { enabled = true } },
+    },
+  },
+
+  -----------------------------------------------------------------------
   -- The nested-Neovim problem  ->  flatten.nvim.
   --
   -- `nvim file` typed in the terminal pane, or a $EDITOR call from git in
