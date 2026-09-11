@@ -20,12 +20,13 @@ adds them up and exits non-zero if anything failed.
 | `test-shell-target.sh` | which rc file a run writes to, and why: login-shell detection, `--shell`, the `--set-default-shell` interaction, the foreign-file report |
 | `test-uninstall.sh` | manifest path guard across both font directories |
 | `test-nvim-land.sh` | `report` / `--apply` / `--restore` |
+| `test-video-preview.sh` | what opening a video shows: ffprobe formatting, the nowrite guard, graceful degradation |
 | `test-ide-remote.sh` | the nvim remote-open shell line, `--freeze`'s lockfile guard, and the tree that replaced oil in the explorer pane |
 | `test-iterm-tune.sh` | the settings tables and Nerd Font face names |
 | `test-install-loop.sh` | `install_all_tools` reaches every catalog entry even when a tool drains stdin |
 | `test-payload-pick.sh` | which file inside an archive gets installed, and whether a version query proves anything |
 
-Nine of these exist because of a way asset selection, a write, or a run goes
+Ten of these exist because of a way asset selection, a write, or a run goes
 wrong:
 
 - an `arm64` host was handed a `linux_arm` build, so `select_asset` matches a
@@ -67,6 +68,13 @@ wrong:
   — it answers `E5600` — so the terminal pane got an error instead of a file
 - `pending_count` counted `lazy-lock.json`, so `--freeze` refused to run in the
   one situation it exists for and no plugin could ever be added
+
+- `join` in the video preview walked its parts with `ipairs` over a table that
+  had holes in it. ffprobe leaves gaps — a file with a codec but no resolution
+  gives `(nil, 'theora', nil)` — and `ipairs` stops at the first `nil`, so the
+  line came out empty and a sparsely described file lost it entirely. It takes
+  varargs counted with `select('#')` now, and `test-video-preview.sh` asserts
+  the sparse case specifically; the full-metadata case passed throughout.
 
 Each has an assertion here now. Keep them.
 
@@ -134,6 +142,10 @@ scripts without running them; that is how the internals are reachable.
   against fixtures shaped like the real ones, not against the real releases.
 - **Neovide on Linux**: it installs headless but cannot run without a desktop.
 - **A real Neovim load**: layers 1 and 2 need an actual `nvim`.
+- **The video thumbnail itself**: extracting and drawing it needs ffmpeg and a
+  terminal to draw into. `test-video-preview.sh` covers the formatting against a
+  fixture of ffprobe's output instead, so it needs neither a video file nor
+  ffmpeg — which is what makes it runnable on a CI runner at all.
 - **yazi's image previews**: they need a terminal that speaks one of the
   graphics protocols. `yazi --debug` on a real terminal is the only check, and
   a headless runner cannot be one.

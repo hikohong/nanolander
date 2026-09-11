@@ -60,13 +60,16 @@ WHAT IT INSTALLS:
   init.vim                     sources ~/.vimrc and ~/.vim when they exist,
                                then patches what Neovim does differently
   lua/hikovim/plugins.lua      treesitter, LSP, aerial, gitsigns, lualine,
-                               oil, fzf-lua — through lazy.nvim
+                               oil, neo-tree, flatten, image, fzf-lua —
+                               through lazy.nvim
   lua/hikovim/lsp.lua          language servers, each enabled only when its
                                binary is on PATH
   lua/hikovim/keys.lua         ,tb and the <C-\\> cscope keys, kept on the
                                same letters they have in vim
   lua/hikovim/ide.lua          the four-pane layout: editor, outline, file
-                               explorer and a strip of terminals
+                               tree and a strip of terminals
+  lua/hikovim/video.lua        a frame and the numbers when you open a video,
+                               instead of a window full of binary
 
 WHAT IT DOES NOT DO:
   It never edits ~/.vimrc or ~/.vim; those belong to hikovim and stay the

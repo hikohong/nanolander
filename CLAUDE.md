@@ -59,7 +59,7 @@ than one-offs.
 ├── share/
 │   └── nvim/              ← the Neovim config, vendored here on purpose
 │       ├── init.vim       ← layers 1 and 2: sources ~/.vimrc, patches Neovim
-│       ├── lua/hikovim/   ← layer 3: init, plugins, lsp, keys, ide
+│       ├── lua/hikovim/   ← layer 3: init, plugins, lsp, keys, ide, video
 │       └── lazy-lock.json ← the pinned plugin set; written by --freeze
 ├── tests/                 ← the suites; ./tests/run.sh runs them all
 ├── .github/workflows/     ← CI: the only gate on an auto-merged PR
@@ -237,6 +237,14 @@ Rules that are easy to break:
   design and cannot be a tree. So neo-tree must keep
   `hijack_netrw_behavior = 'disabled'`: two plugins claiming netrw means a
   directory opens in whichever loaded last.
+- **`video.lua` previews, it does not play, and that boundary is the design.**
+  A `BufReadCmd` replaces the binary read with ffprobe's numbers and one ffmpeg
+  frame. Playback in a buffer was measured and rejected: a 960×540 frame is
+  625 KB of sixel, so 24 fps is 14 MB/s of escape sequences, and a sixel image
+  is painted on the terminal rather than owned by a buffer, so every statusline
+  tick tears it. Hand a video to `open` or `mpv --vo=tct` instead.
+- **The video buffer is `nowrite`.** It keeps the real filename, so without that
+  a `:w` would write the preview text over the video.
 - **iTerm2 does not speak the Kitty graphics protocol, and every Neovim image
   plugin does.** snacks.nvim has no iTerm2 path at all; image.nvim defaults to
   kitty. iTerm2 speaks sixel, so `backend = 'sixel'` is load-bearing — that is
