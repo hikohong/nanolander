@@ -38,8 +38,10 @@ jobs:
 
       # -S style is stricter than the warning-level bar the README claims, and
       # the scripts are clean at it today. Any disable needs a comment saying why.
+      # bin/* rather than a list of names: a helper added without being added
+      # here would have gone unchecked, and helpers are meant to keep arriving.
       - name: ShellCheck
-        run: shellcheck -S style bin/nanolander bin/nvim-land bin/iterm-tune tests/*.sh
+        run: shellcheck -S style bin/* tests/*.sh
 
       - name: Parse every script
         run: |
@@ -52,7 +54,7 @@ jobs:
       - name: Reject bash 4+ constructs
         run: |
           if grep -nE 'declare -A|local -A|mapfile|readarray|\$\{[A-Za-z_]+,,|\$\{[A-Za-z_]+\^\^|\|&' \
-               bin/nanolander bin/nvim-land bin/iterm-tune \
+               bin/* \
              | grep -v '^\S*:[0-9]*:#'; then
             echo "bash 4+ construct found; macOS ships bash 3.2" >&2
             exit 1

@@ -7,7 +7,7 @@ One script that installs the same modern terminal toolchain on macOS, Ubuntu, Am
 | Item | Detail |
 | --- | --- |
 | Main program | `bin/nanolander` |
-| Companion tools | `bin/nvim-land` (Neovim configuration), `bin/iterm-tune` (iTerm2 performance tuning, macOS) |
+| Companion tools | `bin/nvim-land` (Neovim configuration), `bin/iterm-tune` (iTerm2 performance tuning, macOS), `bin/vlc-default` (VLC as the video player, macOS) |
 | Tools installed | 54 |
 | Install source | Package manager first, official GitHub release when missing |
 | Install location | The package manager's default path, or `~/.local/bin` |
@@ -32,6 +32,7 @@ One script that installs the same modern terminal toolchain on macOS, Ubuntu, Am
 - [Notes and troubleshooting](#notes-and-troubleshooting)
 - [Project structure](#project-structure)
 - [iTerm2 tuning](#iterm2-tuning)
+- [VLC as the video player](#vlc-as-the-video-player)
 - [What changed in this release](#what-changed-in-this-release)
 
 ---
@@ -822,7 +823,8 @@ nanolander/
 ├── bin/
 │   ├── nanolander      the main install script
 │   ├── nvim-land       install the Neovim configuration
-│   └── iterm-tune      iTerm2 performance tuning (macOS only)
+│   ├── iterm-tune      iTerm2 performance tuning (macOS only)
+│   └── vlc-default     VLC as the default video player (macOS only)
 ├── share/
 │   └── nvim/           the Neovim configuration bin/nvim-land installs
 │       ├── init.vim
@@ -849,7 +851,33 @@ macOS users can also tune iTerm2's rendering settings. Look at the current state
 
 What it covers: GPU rendering is not disabled on battery, rendering favours throughput, transparency and blur are turned off, ligatures are turned off, and scrollback becomes bounded instead of unlimited. Trigger counts and background images are reported only, never modified.
 
+## VLC as the video player
+
+macOS opens `.mp4`, `.mov` and friends in QuickTime Player, which cannot play half of them. This points them at VLC instead:
+
+```bash
+./bin/vlc-default              # report only, changes nothing
+./bin/vlc-default --apply      # back up LaunchServices, then apply
+./bin/vlc-default --restore    # restore the most recent backup
+```
+
+What it covers: 24 video content types, between them the extensions `.mp4` `.m4v` `.mkv` `.avi` `.mov` `.qt` `.wmv` `.flv` `.f4v` `.webm` `.mpg` `.mpeg` `.m2v` `.ts` `.m2ts` `.mts` `.vob` `.3gp` `.3g2` `.asf` `.rm` `.rmvb` `.divx` `.ogv` `.ogm` `.mxf` `.dv`. Content types rather than extensions, so an extension a later VLC adds to a type it already claims is covered too. Audio, images and playlists are left with whatever owns them now, even though VLC would open those as well.
+
+**The bundle identifier is the whole point.** A Parallels virtual machine publishes its Windows applications into `~/Applications (Parallels)` as real `.app` bundles, so a machine with VLC installed inside Windows has two applications called VLC and either one can end up owning `.mp4` — a double click then boots a virtual machine to watch a file. This script only ever writes `org.videolan.vlc`, which is the macOS build and nothing else, and the report names every other VLC it finds without touching it.
+
+Do not trust `duti -x mp4` to check the result: it resolves by application name and will happily name the Parallels one when the binding is correct. `./bin/vlc-default` reads the preference file, which is what LaunchServices actually consults.
+
+Writing needs [`duti`](https://github.com/moretension/duti), which is not part of a base macOS; `--apply` installs it through Homebrew when it is missing and says so. Reporting needs nothing but PlistBuddy.
+
 ## What changed in this release
+
+### VLC opens video files, not QuickTime (new)
+
+`bin/vlc-default` is the third companion, and the first one that is about the machine rather than the terminal: macOS hands `.mp4` and `.mov` to QuickTime Player, which cannot play a good half of what a real file collection holds. It points 24 video content types at VLC, reports by default, backs up before writing and undoes with `--restore`. See [VLC as the video player](#vlc-as-the-video-player).
+
+It writes `org.videolan.vlc` and only that. A Parallels virtual machine publishes its Windows applications as genuine `.app` bundles, so a machine running VLC inside Windows has two of them and the Windows one can win `.mp4` — the file then opens by booting a virtual machine. The report names any second VLC it finds and leaves it alone.
+
+`duti -x mp4` is not a check: it resolves by application name and names whichever VLC it meets first, which on that machine is the Parallels one even when the binding is right. The report reads the LaunchServices preference file instead, and `--apply` re-reads it afterwards rather than believing `duti`'s exit status — the same rule as `command_works`, where a tool counts as installed only when it says its own version.
 
 ### A file tree, and no more nested Neovim (new)
 

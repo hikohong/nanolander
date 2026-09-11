@@ -39,9 +39,10 @@ report by default, `--apply` to write, back up first, `--restore` to undo:
 | --- | --- |
 | `bin/nvim-land` | installs `share/nvim` into `~/.config/nvim` |
 | `bin/iterm-tune` | iTerm2 rendering settings, macOS only |
+| `bin/vlc-default` | VLC as the default video player, macOS only |
 
-**More of both are expected**, so treat those two files as the template rather
-than one-offs.
+**More of these are expected**, so treat those three files as the template
+rather than one-offs.
 
 ---
 
@@ -55,7 +56,8 @@ than one-offs.
 ├── bin/
 │   ├── nanolander         ← the main installer (bash 3.2, ~1900 lines)
 │   ├── nvim-land          ← installs the Neovim config, macOS + Linux
-│   └── iterm-tune         ← iTerm2 performance tuning, macOS only
+│   ├── iterm-tune         ← iTerm2 performance tuning, macOS only
+│   └── vlc-default        ← VLC as the default video player, macOS only
 ├── share/
 │   └── nvim/              ← the Neovim config, vendored here on purpose
 │       ├── init.vim       ← layers 1 and 2: sources ~/.vimrc, patches Neovim
@@ -320,7 +322,7 @@ Rules that are easy to break:
   bundles `c`, `lua`, `markdown`, `query`, `vim`, `vimdoc`, which is why C
   still works on a bare box.
 
-### Adding a terminal helper
+### Adding a helper
 
 Follow `bin/iterm-tune`:
 
@@ -334,6 +336,37 @@ Follow `bin/iterm-tune`:
 - Report the user's own content (triggers, background images, the chosen
   font); never modify it. The font report exists so a user can see why their
   prompt is full of boxes.
+- **Add nothing to CI's file lists.** `ci.yml` lints and parses `bin/*`, not a
+  list of names, because a helper added without being added there went
+  unchecked — and the whole point of that table above is that helpers keep
+  arriving.
+
+### bin/vlc-default
+
+- **A bundle identifier is the only safe way to name an application.** Parallels
+  publishes a Windows VM's applications into `~/Applications (Parallels)` as
+  genuine `.app` bundles, so a machine with VLC inside Windows has two
+  applications called VLC, and the Windows one can own `.mp4` — a double click
+  then boots a virtual machine. The script writes `org.videolan.vlc` and
+  reports every other VLC it finds without touching it.
+- **`duti -x <ext>` is not a verification path.** It resolves by application
+  *name* and returns the Parallels bundle even when the binding is correct.
+  Read the preference file: `parse_handler_dump` over
+  `~/Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure.plist`.
+- **duti exits 0 whether or not the write took**, so `--apply` re-reads the
+  preference file afterwards and reports per type. Same rule as `command_works`.
+- **The table is content types, not extensions.** Every extension maps to one,
+  and a type covers the extensions a later VLC adds to it. Audio, images and
+  playlists stay out of the table even though VLC opens them.
+- **The parser is split from the PlistBuddy call.** `parse_handler_dump` reads a
+  dump on stdin so it can be tested on Linux. It keys on brace depth because
+  every handler carries a nested `LSHandlerPreferredVersions` dictionary whose
+  own `LSHandlerRoleAll` is always `-`; reading fields at any depth returns `-`
+  as the handler for everything.
+- **`duti` is not in the catalog**, and does not need to be: it is macOS-only,
+  and `--apply` installs it through the Homebrew that `setup_homebrew`
+  guarantees. Reporting needs only PlistBuddy, so a bare machine still gets a
+  useful report.
 
 ---
 
@@ -404,6 +437,13 @@ Owner instruction (2026-09-07):
 No confirmation is needed before opening or merging these PRs — this instruction
 is the standing authorization. Report the PR number and the merge result each
 time.
+
+**"PR and merge" — in either language, however briefly it is put — means all
+five steps**, not just the first: branch, push, open the PR, squash-merge it
+into `main`, then delete the branch at both ends and close the PR out. Owner
+instruction, 2026-09-11. Do not stop at an open PR and wait to be told to merge
+it. (The owner's usual phrasing is Chinese and cannot be quoted here: CI holds
+this file to English only.)
 
 ```bash
 git checkout -b claude/<slug>
