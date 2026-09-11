@@ -116,6 +116,7 @@ chk "real drift still counts"             "$(pending_count "$LOCKFILE")" "1"
 # --- the panes, as data ----------------------------------------------------
 IDE="$SRC_DIR/lua/hikovim/ide.lua"
 PLUGINS="$SRC_DIR/lua/hikovim/plugins.lua"
+VIDEO_LUA="$SRC_DIR/lua/hikovim/video.lua"
 
 chk "the explorer pane is the tree"  "$(grep -c "state.explorer then return 'neo-tree'" "$IDE")" "1"
 # neo-tree binds <2-LeftMouse> and nothing else, so one click only moved the
@@ -241,6 +242,33 @@ chk "and enforce keeps its own rule" \
 # enforce is still the backstop for every other route into a panel — fzf-lua, a
 # quickfix jump, gf, :bnext.
 chk "enforce is still there"       "$(grep -c 'function M.enforce' "$IDE")" "1"
+
+# --- a double click on a video hands it to the system player ----------------
+# video.lua previews and deliberately plays nothing: 24 fps of sixel is 14 MB/s
+# of escape sequences and the statusline tears through every frame. What it says
+# to do instead is hand the file to something that watches files, and the double
+# click is that. The single click and <CR> still preview.
+chk "the double click is claimed" \
+  "$(grep -c "\['<2-LeftMouse>'\]" "$PLUGINS")" "1"
+chk "and the layout answers it"    "$(grep -c 'ide.tree_double_click(state)' "$PLUGINS")" "1"
+chk "the handler exists"           "$(grep -c 'function M.tree_double_click' "$IDE")" "1"
+# vim.ui.open is `open` on macOS and `xdg-open` on a Linux desktop, so the file
+# goes to whatever owns the type. Naming VLC here as well as in vlc-default is
+# how the two come apart: the binding belongs to the system.
+chk "it goes through the system"   "$(grep -c 'vim.ui.open(path)' "$IDE")" "1"
+chk "and names no player itself" \
+  "$(grep -vE '^[[:space:]]*--' "$IDE" | grep -cE "'(vlc|mpv|ffplay|open|xdg-open)'")" "0"
+# One owner for the extension list, or a container gets a preview and no player.
+chk "it asks video.lua"            "$(grep -c 'video.is_video(path)' "$IDE")" "1"
+chk "which exports the answer"     "$(grep -c 'function M.is_video' "$VIDEO_LUA")" "1"
+# A directory to expand and every other file keep doing what neo-tree
+# documents, so the double click is not taken away from them.
+chk "anything else falls through" \
+  "$(grep -c "require('neo-tree.sources.filesystem.commands').open(tree_state)" "$IDE")" "1"
+# vim.ui.open answers nil and a reason rather than throwing, and a box with no
+# desktop is that case. Silence there is indistinguishable from a missed click.
+chk "a box with no desktop is told" "$(grep -c 'cannot open %s' "$IDE")" "1"
+chk "and pointed at mpv"            "$(grep -c 'mpv --vo=tct' "$IDE")" "1"
 
 LOCK="$SRC_DIR/lazy-lock.json"
 for plugin in neo-tree.nvim flatten.nvim nui.nvim plenary.nvim oil.nvim image.nvim; do

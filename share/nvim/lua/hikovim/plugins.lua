@@ -211,7 +211,24 @@ return {
     opts = {
       -- The layout owns the window, so neo-tree must render into the one it
       -- is given rather than opening a sidebar of its own.
-      window = { position = 'current' },
+      window = {
+        position = 'current',
+        -- A double click on a video hands it to the system player instead of
+        -- previewing it: `open` on macOS, so the LaunchServices binding decides
+        -- — VLC on a machine that has run bin/vlc-default. The single click and
+        -- <CR> still preview, and every other file keeps neo-tree's own open.
+        -- See ide.tree_double_click.
+        mappings = {
+          ['<2-LeftMouse>'] = {
+            function(state)
+              local ok, ide = pcall(require, 'hikovim.ide')
+              if not ok then return end
+              ide.tree_double_click(state)
+            end,
+            desc = 'open — a video goes to the system player',
+          },
+        },
+      },
       -- Never take the session down: the layout decides what happens when the
       -- last file closes, in ide.lua's editor_gone.
       close_if_last_window = false,

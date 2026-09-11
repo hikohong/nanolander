@@ -578,6 +578,50 @@ local function tree_click()
   if m and m.callback then pcall(m.callback) end
 end
 
+-- tree_double_click — a double click on a video hands it to the system player.
+--
+-- video.lua previews a video and deliberately plays nothing: a sixel frame is
+-- painted on the terminal rather than owned by a buffer, so 24 fps of them
+-- would be 14 MB/s of escape sequences with the statusline tearing through
+-- every one. What it says to do instead is hand the file to something that
+-- watches files, and this is that. vim.ui.open is `open` on macOS and
+-- `xdg-open` on a Linux desktop, so the file goes to whatever owns the type
+-- — which on a machine that has run bin/vlc-default is VLC. Nothing here names
+-- VLC: that binding belongs to the system, and saying it twice is how the two
+-- come apart.
+--
+-- The single click still previews. A double click sends <LeftRelease> twice
+-- with <2-LeftMouse> between them, so the preview opens and then the player
+-- does, which is the order those two clicks read in.
+--
+-- Only a video is taken. A directory to expand, and every other file, goes to
+-- neo-tree's own open, so the double click keeps doing what neo-tree documents.
+--
+---@param tree_state table neo-tree's state for the source the mapping fired in
+function M.tree_double_click(tree_state)
+  local node = tree_state and tree_state.tree and tree_state.tree:get_node()
+  local path = (node and node.type == 'file') and node.path or nil
+
+  local ok, video = pcall(require, 'hikovim.video')
+  if not (path and ok and video.is_video(path)) then
+    -- Not ours: let neo-tree do what a double click has always done.
+    pcall(function()
+      require('neo-tree.sources.filesystem.commands').open(tree_state)
+    end)
+    return
+  end
+
+  -- vim.ui.open answers nil and a reason rather than throwing, and a box with
+  -- no desktop is exactly that case — over SSH there is nothing to hand a file
+  -- to. Say so; silence here is indistinguishable from a click that missed.
+  local opened, err = vim.ui.open(path)
+  if not opened then
+    vim.notify(("cannot open %s: %s\nOver SSH, try mpv --vo=tct"):format(
+      vim.fn.fnamemodify(path, ':t'), err or 'no handler for this file type'),
+      vim.log.levels.WARN)
+  end
+end
+
 -- outline_select — the same rule for the top-right pane: aerial jumps in the
 -- editor window, never in whichever window it last saw the cursor in, which
 -- with a terminal in the layout could be the terminal.

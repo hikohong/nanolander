@@ -44,6 +44,23 @@ local function have(cmd)
   return vim.fn.executable(cmd) == 1
 end
 
+-- is_video — does this name look like one of the containers above?
+--
+-- The extension list has one owner, so ide.lua asks rather than keeping a copy:
+-- a double click in the tree hands a video to the system player, and "is this a
+-- video" has to be the same answer in both places or a container gets a preview
+-- and no player, or the reverse. PATTERNS are autocmd globs; here only the
+-- extension matters.
+function M.is_video(path)
+  if type(path) ~= 'string' or path == '' then return false end
+  local name = vim.fn.fnamemodify(path, ':t'):lower()
+  for _, pattern in ipairs(PATTERNS) do
+    local ext = pattern:match('^%*(%.%w+)$')
+    if ext and #name > #ext and name:sub(-#ext) == ext then return true end
+  end
+  return false
+end
+
 -- hms — 134.6 seconds as 00:02:14.
 local function hms(seconds)
   local n = math.floor(tonumber(seconds) or 0)
