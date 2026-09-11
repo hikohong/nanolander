@@ -221,7 +221,28 @@ return {
       -- A file opened from the tree must not land in the terminal pane or the
       -- outline. ide.lua's enforce would move it out again, but naming the
       -- types here means it never goes there in the first place.
+      --
+      -- This list only applies to a neo-tree that has a window to choose from.
+      -- At position 'current' it has none — see the handler below.
       open_files_do_not_replace_types = { 'terminal', 'aerial', 'qf', 'oil' },
+      -- Where a file opened from the tree goes. Position 'current' means
+      -- neo-tree opens it in the window it is already in, which is the explorer
+      -- pane, and the layout then has to move it. That is a turn of the loop
+      -- too late for image.nvim, which draws a picture into whichever window
+      -- the buffer first appeared in and leaves it there. So the layout answers
+      -- this event and puts the file in the editor pane itself; see
+      -- ide.tree_open_request. Returning nothing leaves neo-tree's own logic in
+      -- charge, which is what happens with the layout off.
+      event_handlers = {
+        {
+          event = 'file_open_requested',
+          handler = function(args)
+            local ok, ide = pcall(require, 'hikovim.ide')
+            if not ok then return nil end
+            return ide.tree_open_request(args)
+          end,
+        },
+      },
       filesystem = {
         -- oil is the netrw replacement. Two plugins claiming it is how you
         -- get a directory opening in whichever one loaded last.

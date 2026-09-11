@@ -504,11 +504,57 @@ local function relocate_quickfix(buf)
   if not follow and alive(here) then vim.api.nvim_set_current_win(here) end
 end
 
--- The explorer pane needs no <CR> of its own. neo-tree expands and collapses a
--- directory in place, and for a file it asks for a window that is none of
--- open_files_do_not_replace_types — the terminal, the outline and oil are all
--- named there — which leaves the editor pane. enforce stays the backstop for
--- anything that still lands in a panel.
+-- tree_open_request — where a file opened from the explorer pane goes.
+--
+-- neo-tree sits in that pane at position 'current', which is what makes it
+-- render into a window the layout built instead of opening a sidebar of its
+-- own. Its open_file takes that literally: for 'current' it skips the window
+-- search — open_files_do_not_replace_types and all — and runs `:buffer` in the
+-- window it is already in. So every file opened from the tree appeared in the
+-- explorer pane first and enforce moved it a turn of the loop later.
+--
+-- Invisible for text, and not for an image. image.nvim hijacks on BufWinEnter,
+-- so it built an image bound to the *explorer* window and started drawing
+-- there; by the time that finished the buffer had moved, and its renderer
+-- bails out of a window that no longer shows the buffer without clearing what
+-- it had already painted. A sixel is painted on the terminal rather than owned
+-- by a buffer, so the picture stayed on the tree — showing in both panes, and
+-- only sometimes, since it depends on which of the two won the race.
+--
+-- neo-tree fires file_open_requested first and documents the answer: return
+-- `{ handled = true }` and it does nothing further. So the layout opens the
+-- file in the editor pane itself and the buffer is never displayed anywhere
+-- else. Only the plain open is taken — S, s and t still split and open tabs —
+-- and with the layout off this hands straight back to neo-tree.
+--
+-- enforce stays the backstop for anything that still lands in a panel.
+---@param args table neo-tree's event argument: path, open_cmd, bufnr, state
+---@return table|nil result `{ handled = true }` when the file was placed here
+function M.tree_open_request(args)
+  if not (type(args) == 'table' and type(args.path) == 'string' and args.path ~= '') then
+    return nil
+  end
+  if (args.open_cmd or 'edit') ~= 'edit' then return nil end
+  if not alive(state.editor) then return nil end
+
+  local buf = args.bufnr
+  if not (type(buf) == 'number' and buf > 0 and vim.api.nvim_buf_is_valid(buf)) then
+    -- bufadd rather than :edit: a buffer number has nothing to escape, which is
+    -- the trap neo-tree's own comment on this warns about.
+    buf = vim.fn.bufadd(args.path)
+  end
+  if buf <= 0 then return nil end
+
+  -- show_in_editor sets the editor pane's buffer, which is also what makes that
+  -- window current for the BufWinEnter it fires — and that event is the one
+  -- image.nvim reads to decide where to draw.
+  local ok, placed = pcall(show_in_editor, buf)
+  if not (ok and placed) then return nil end
+  return { handled = true }
+end
+
+-- The explorer pane needs no <CR> of its own: neo-tree expands and collapses a
+-- directory in place, and a file goes through tree_open_request above.
 --
 -- It does need a single click. neo-tree binds <2-LeftMouse> and nothing else,
 -- so one click only moved the cursor, which is indistinguishable from a pane
