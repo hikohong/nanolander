@@ -237,6 +237,13 @@ Rules that are easy to break:
   design and cannot be a tree. So neo-tree must keep
   `hijack_netrw_behavior = 'disabled'`: two plugins claiming netrw means a
   directory opens in whichever loaded last.
+- **lualine invents a tabline entry for an unlisted current buffer.** Focus a
+  panel and it appears as a tab — `[No Name]` for the outline — with the ✕ that
+  `add_tabline_close_button` adds, and that ✕ ran `:q` on the pane. `is_current`
+  is patched so the editor's buffer answers yes while the cursor is in a panel,
+  which stops the tab being invented at all, and the ✕ goes through
+  `M.close_tab`, which acts only on listed buffers. `:q` in a panel still closes
+  that window — that is `close_buffer`, and it is meant to.
 - **`startinsert` is spent on whichever window is current when the main loop
   resumes**, not where it is called. The terminal pane's `term://*` autocmd
   fired it while `M.open` was still building, so the flag landed on the *editor*

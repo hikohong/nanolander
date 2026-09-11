@@ -139,6 +139,17 @@ chk "and only behind a buftype check" \
 chk "focus is settled, not assumed"  "$(grep -c 'local function settle_focus' "$IDE")" "1"
 chk "the settle is bounded"          "$(grep -c 'tries < 4' "$IDE")" "1"
 chk "and leaves normal mode set"     "$(grep -c "vim.cmd('stopinsert')" "$IDE")" "1"
+
+# lualine builds the tabline from listed buffers and then invents a tab for the
+# current one if it was not among them — so focusing a panel put the outline in
+# as [No Name], the tree as neo-tree filesystem [1002] and the terminal as zsh,
+# each with a ✕ that closed the pane. is_current is answered for the editor's
+# buffer while the cursor is in a panel, so nothing is invented; and the ✕ only
+# ever acts on a listed buffer, so it cannot dismantle the layout either way.
+chk "panels stay out of the tabline" "$(grep -c 'function Buffer:is_current' "$IDE")" "1"
+chk "the X is a tab-only action"     "$(grep -c 'function M.close_tab' "$IDE")" "1"
+chk "and it refuses the unlisted"    "$(grep -c 'buflisted then return end' "$IDE")" "1"
+chk "the tabline calls close_tab"    "$(grep -c "hikovim.ide'.close_tab" "$IDE")" "1"
 chk "the tree pane is recognised"    "$(grep -c "kind == 'neo-tree'" "$IDE")" "2"
 chk "flatten can find the editor"    "$(grep -c 'function M.editor_win' "$IDE")" "1"
 chk "neo-tree is installed"          "$(grep -c 'nvim-neo-tree/neo-tree.nvim' "$PLUGINS")" "1"

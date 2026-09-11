@@ -442,6 +442,8 @@ Only the editor pane ever shows file contents. **One click** in the tree opens a
 
 Inside a `:terminal` Neovim exports `$NVIM`, pointing at its own socket, which is what both mechanisms use. Outside one `$NVIM` is unset and `nvim` is an ordinary `nvim`.
 
+**The panels never appear in the tabline.** lualine builds the strip from listed buffers and then invents a tab for the current one if it was not among them, so focusing a panel used to add the outline as `[No Name]`, the tree as `neo-tree filesystem [1002]` and the terminal as `zsh` — each carrying a `✕` that closed the pane. While the cursor is in a panel the tabline keeps showing the file in the editor pane as current, so nothing is invented; and the `✕` only ever acts on a listed buffer, so it cannot take a pane down even if one did appear.
+
 Both strips of tabs close the same way: the `✕` on a tab, or `:q` in the pane it belongs to. `:q` in the editor pane closes the file, `:q` in the terminal pane closes that shell, and `:qa`, `:wq`, `:x` and `:1,2q` are left to vim. Closing the last file quits, closing the last shell closes the terminal pane, and `<F6>` brings that pane back.
 
 neo-tree itself binds only the double click, which left one click moving the cursor and nothing else — indistinguishable from a pane that does not work. `CLICK_OPENS = false` at the top of `ide.lua` puts the double click back.

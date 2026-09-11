@@ -802,13 +802,25 @@ end
 -- name, so a click there closes instead of switches. The buffer's own render
 -- has already measured itself by the time this runs, hence the len fixup:
 -- without it lualine truncates the tabline two columns early per tab.
+-- close_tab — what the ✕ in the tabline does. Only ever a tab, which means only
+-- ever a listed buffer.
+--
+-- :q in a panel legitimately closes that window, and close_buffer does that.
+-- The ✕ must not: a click in the tabline is not a request to dismantle the
+-- layout, and the tab it belongs to should not have been there at all.
+function M.close_tab(bufnr)
+  if not (bufnr and vim.api.nvim_buf_is_valid(bufnr)) then return end
+  if not vim.bo[bufnr].buflisted then return end
+  M.close_buffer(bufnr, false)
+end
+
 local function add_tabline_close_button()
   local ok, Buffer = pcall(require, 'lualine.components.buffers.buffer')
   if not ok or Buffer.hikovim_close_button then return end
 
   vim.cmd([[
     function! HikovimTablineClose(bufnr, clicks, button, modifiers) abort
-      call v:lua.require'hikovim.ide'.close_buffer(a:bufnr)
+      call v:lua.require'hikovim.ide'.close_tab(a:bufnr)
     endfunction
   ]])
 
@@ -818,6 +830,30 @@ local function add_tabline_close_button()
     self.len = self.len + vim.fn.strchars(CLOSE_ICON)
     return switch .. string.format('%%%d@HikovimTablineClose@%s%%T', self.bufnr, CLOSE_ICON)
   end
+
+  -- Keep the panels out of the tabline.
+  --
+  -- lualine builds the strip from listed buffers, and then, if the *current*
+  -- buffer was not among them, invents a tab for it so you can always see
+  -- where you are. Focus a panel and that is what happens: the outline arrives
+  -- as `[No Name]`, the tree as `neo-tree filesystem [1002]`, the terminal as
+  -- `zsh` — each with a ✕ beside it. None of them is a file you are editing,
+  -- and reaching for one of those ✕ is how you lose a pane.
+  --
+  -- Rather than deleting the invented tab afterwards, this stops it being
+  -- invented: while the cursor is in a panel, the file in the editor pane
+  -- answers "am I the current one?". lualine then finds a current buffer among
+  -- the listed ones, adds nothing, and the tabline goes on highlighting the
+  -- file you are editing — which is the truth worth showing while you are
+  -- clicking around in the outline.
+  local was_current = Buffer.is_current
+  function Buffer:is_current()
+    if was_current(self) then return true end
+    if not pane_kind(vim.api.nvim_get_current_win()) then return false end
+    local editor = M.editor_win()
+    return editor ~= nil and self.bufnr == vim.api.nvim_win_get_buf(editor)
+  end
+
   Buffer.hikovim_close_button = true
 end
 
