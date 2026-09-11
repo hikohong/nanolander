@@ -383,7 +383,7 @@ Each replacement disables its predecessor in Neovim only, by setting the plugin'
 | `airline.vim` | `lualine.nvim` | Same badwolf palette and separators, a fraction of the startup cost |
 | `gitgutter.vim` | `gitsigns.nvim` | Asynchronous, so it does not stall on a large file |
 | `taglist.vim`, `tagbar.vim` | `aerial.nvim` | Outline from the language server or treesitter, with no tags file to regenerate |
-| `NERD_tree.vim` | `oil.nvim` | A directory is an ordinary buffer: `dd` deletes, `p` pastes, `:w` applies |
+| `NERD_tree.vim` | `oil.nvim` + `neo-tree.nvim` | Two halves of what NERDTree did. oil is the directory *editor* — a directory is an ordinary buffer, so `dd` deletes, `p` pastes, `:w` applies — and answers `<F5>` and `:e` of any directory. neo-tree is the *navigator*, the hierarchical whole-project list in the IDE layout's explorer pane, which oil cannot be: it shows one directory at a time by design |
 | `syntax on` | `nvim-treesitter` | Accurate folds and highlighting from a real parse |
 | `vimirc.vim` | — | An IRC client is not an editor's job |
 
@@ -418,7 +418,7 @@ Everything else — `,sp`, `,lp`, `,ic`, `,f`, `,F`, `<space>`, `<backspace>`, `
 │  file contents           │ function list │  aerial.nvim
 │  (the editor)            │               │
 │                          ├───────────────┤
-├──────────────────────────┤ file explorer │  oil.nvim
+├──────────────────────────┤ file tree     │  neo-tree.nvim
 │  1 zsh ✕  2 zsh ✕  +     │               │
 │  the terminals           │               │
 └──────────────────────────┴───────────────┘
@@ -431,7 +431,16 @@ Everything else — `,sp`, `,lp`, `,ic`, `,f`, `,F`, `<space>`, `<backspace>`, `
 | `:IDETerm` / `:IDETerm!` | the terminal pane, or one more shell in it |
 | `:BufClose` / `:BufClose!` | close this tab, buffer and all — what `:q` runs |
 
-Only the editor pane ever shows file contents. `<CR>` or a double click in the explorer opens the file up there and walks directories in place; anything else that opens a file inside a panel — an fzf-lua pick, a quickfix jump, `gf` — is moved out of it. `:copen` lands inside the editor column rather than across the whole screen, which is the one shape the layout cannot absorb.
+Only the editor pane ever shows file contents. `<CR>` in the tree expands a directory in place and opens a file up there; anything else that puts a file inside a panel — an fzf-lua pick, a quickfix jump, `gf` — is moved out of it. `:copen` lands inside the editor column rather than across the whole screen, which is the one shape the layout cannot absorb.
+
+**`nvim <file>` in the terminal pane opens it in the editor pane**, rather than starting a second Neovim nested inside the pane. That needs help from outside `ide.lua`, because a nested Neovim is a separate process that nothing in this configuration can see:
+
+| Mechanism | Covers | Ships in |
+| --- | --- | --- |
+| `flatten.nvim` | any nested Neovim in that pane — typed by you, or launched by `git commit`, `fzf`, or anything reading `$EDITOR`. Blocks for `gitcommit` and `gitrebase`, so git waits for the message instead of committing an empty one | `plugins.lua` |
+| a shell function | what you type, on any machine that got the shell config even without this Neovim configuration | `~/.bashrc` or `~/.zshrc`, see [Shell configuration changes](#shell-configuration-changes) |
+
+Inside a `:terminal` Neovim exports `$NVIM`, pointing at its own socket, which is what both mechanisms use. Outside one `$NVIM` is unset and `nvim` is an ordinary `nvim`.
 
 Both strips of tabs close the same way: the `✕` on a tab, or `:q` in the pane it belongs to. `:q` in the editor pane closes the file, `:q` in the terminal pane closes that shell, and `:qa`, `:wq`, `:x` and `:1,2q` are left to vim. Closing the last file quits, closing the last shell closes the terminal pane, and `<F6>` brings that pane back.
 
@@ -443,6 +452,8 @@ The layout sets `mouse=a`, since `mouse=n` cannot click out of a terminal — te
 - **A language server beats both cscope and ctags**, and nanolander does not install one. `clangd` for C and C++ is the one worth having; `./bin/nvim-land` reports which servers this machine can already run.
 - **Parsers need the tree-sitter CLI and a C compiler.** Neovim ships parsers for `c`, `lua`, `markdown`, `query`, `vim` and `vimdoc`, so C works out of the box; anything else compiles on first start once `tree-sitter` is installed.
 - **Treesitter highlighting does not look pixel-identical to vim**, because it paints with `@capture` groups rather than the ones `hiko_color` was tuned for. Set `TS_HIGHLIGHT = false` at the top of `lua/hikovim/plugins.lua` to keep treesitter for folds only.
+- **Neovim has no `--remote-wait`.** The wait commands are Vim's; Neovim answers `E5600: Wait commands not yet implemented in Nvim`. So the shell function uses plain `--remote` and does not block. It does not need to: a shell function is invisible to the `sh -c` that git runs `$EDITOR` through, so it can only ever affect a command you type. Blocking is flatten.nvim's job, over RPC.
+- **flatten's window handler returns `bufnr, winnr`** — buffer first. Its README documents the pair the other way round, and returning a window id first makes flatten treat it as a buffer number and throw from its `BufEnter` handler on every open. `plugins.lua` says so where it matters.
 - **`,sp` and `,lp` write `session.nvim` and `shada.nvim`**, not `session.vim` and `viminfo.vim`. Neovim's info file is msgpack shada and vim's is text, so sharing one pair would leave whichever editor wrote last unreadable to the other.
 - **Completion is on demand** (`<C-x><C-o>`), not as you type, matching the reason `~/.vimrc` turned OmniCppComplete's popup off.
 - **The layout stays out of the way where it would be wrong.** It does not start for a `$EDITOR` call from git, `nvim -d`, piped stdin, or a session that restored its own windows.
@@ -555,6 +566,7 @@ The script writes to `~/.bashrc` or `~/.zshrc`, whichever your login shell reads
 | direnv | `eval "$(direnv hook zsh\|bash)"` | direnv installed successfully |
 | fzf key bindings | `eval "$(fzf --zsh\|--bash)"`, enabling `Ctrl-R` and `Ctrl-T` | fzf installed successfully |
 | fzf search source | `export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'` | both fzf and fd available |
+| nvim remote open | an `nvim()` shell function that forwards to `$NVIM` with `--remote` when one is set | Neovim installed successfully |
 | Alias block | See `--with-aliases` | `--with-aliases` given |
 
 The fzf lines are guarded with a `command -v fzf` check and have their errors suppressed, so removing fzf later, or running an older version of it, will not make your shell complain at startup.
@@ -796,6 +808,18 @@ What it covers: GPU rendering is not disabled on battery, rendering favours thro
 
 ## What changed in this release
 
+### A file tree, and no more nested Neovim (new)
+
+Two things the four-pane layout was missing.
+
+**`nvim <file>` in the terminal pane now opens in the editor pane.** It used to start a second Neovim inside the pane — a separate process, so nothing in `ide.lua` could see it, let alone move the file. Both halves of the fix ship: `flatten.nvim` catches any nested Neovim in that pane, including a `git commit` that has to block, and a one-line shell function covers what you type on machines that only got the shell config. Both key off `$NVIM`, which Neovim exports inside its own `:terminal`. See [The IDE layout](#the-ide-layout).
+
+**The explorer pane is a hierarchical tree.** oil shows one directory at a time on purpose, so a whole-project tree needed a second plugin rather than a setting: `neo-tree.nvim` navigates in the pane, oil still edits and still answers `<F5>` and `:e` of a directory. Nothing was taken away.
+
+The pinned set grew from 9 to 13 — `neo-tree` brings `plenary.nvim` and `nui.nvim` with it, which is the price of the tree.
+
+Also fixed: `./bin/nvim-land --freeze` could never add a plugin. Its guard counted `lazy-lock.json` as unapplied drift, but rewriting that file is what `--freeze` is *for*, and installing a new plugin necessarily makes the target's copy differ — so it refused to run in exactly the case it exists for. It now ignores the lockfile and still refuses on any real drift.
+
 ### A run installs the whole catalog, not one tool (fix)
 
 A run used to stop after the first tool it actually installed, and report success. The catalog was fed into the install loop on standard input, and the commands in that loop read standard input too — dnf reads it to ask whether to import a repository GPG key. That one install consumed every remaining catalog line, the loop ran out of input, and the summary was honest about what it had reached: each of those tools really had passed. Nothing said the other forty-seven were never attempted.
@@ -843,7 +867,7 @@ Two mechanisms came with them, both in `github_install`:
 
 ### Neovim configuration (new)
 
-`bin/nvim-land` installs `share/nvim` into `~/.config/nvim`: `~/.vimrc` and `~/.vim` are sourced rather than copied, the two places where Neovim differs from vim are patched, and lazy.nvim brings in treesitter, LSP, aerial, gitsigns, lualine, oil and fzf-lua. Reports by default, backs up before writing, and `--restore` puts the previous tree back. See [Neovim configuration](#neovim-configuration).
+`bin/nvim-land` installs `share/nvim` into `~/.config/nvim`: `~/.vimrc` and `~/.vim` are sourced rather than copied, the two places where Neovim differs from vim are patched, and lazy.nvim brings in treesitter, LSP, aerial, gitsigns, lualine, oil, neo-tree, flatten and fzf-lua. Reports by default, backs up before writing, and `--restore` puts the previous tree back. See [Neovim configuration](#neovim-configuration).
 
 Two tools joined the catalog for it: `neovide`, the GUI client, and the `tree-sitter` CLI that compiles parsers.
 

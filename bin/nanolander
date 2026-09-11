@@ -1825,6 +1825,25 @@ shell_line() {
     direnv)   printf 'eval "$(direnv hook %s)"' "$2" ;;
     fzf)      printf 'command -v fzf >/dev/null 2>&1 && eval "$(fzf --%s 2>/dev/null)" 2>/dev/null' "$2" ;;
     fzfcmd)   printf '%s' "export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'" ;;
+    # Inside Neovim's own :terminal, $NVIM points at that Neovim's socket, so
+    # `nvim file` there can hand the file to the editor you are already in
+    # rather than starting a second one nested inside the pane. Outside
+    # :terminal $NVIM is unset and this is a plain nvim.
+    #
+    # --remote, not --remote-wait: Neovim does not implement the wait commands
+    # at all and answers E5600, so the shell cannot be made to block this way.
+    # It does not need to. A shell function is invisible to the `sh -c` that
+    # git runs $EDITOR through, so this line can only ever affect a command
+    # typed at the prompt — never a $EDITOR call that must block. That case
+    # belongs to flatten.nvim, which blocks over RPC instead.
+    #
+    # ${NVIM:-} rather than $NVIM: a shell running with `set -u` aborts on an
+    # unset variable, and this line has to be harmless in every shell it lands
+    # in, not just an ordinary interactive one.
+    #
+    # One line, because add_line_once compares whole lines and the uninstaller
+    # removes by exact match.
+    nvimremote) printf '%s' 'nvim() { if [ -n "${NVIM:-}" ] && [ $# -gt 0 ]; then command nvim --server "$NVIM" --remote "$@"; else command nvim "$@"; fi; }' ;;
   esac
 }
 
@@ -1854,6 +1873,10 @@ configure_shell() {
   fi
   if command_works direnv; then
     add_line_once "$rc" "$(shell_line direnv "$sh")" && ok "direnv hook added to $rc"
+  fi
+  if command_works nvim; then
+    add_line_once "$rc" "$(shell_line nvimremote)" \
+      && ok "nvim remote-open wrapper added to $rc (nvim inside :terminal opens in the running editor)"
   fi
 
   # fzf lines are guarded and error-suppressed so that removing fzf later, or
@@ -1913,6 +1936,8 @@ managed_lines() {
   shell_line path
   printf '\n'
   shell_line fzfcmd
+  printf '\n'
+  shell_line nvimremote
   printf '\n'
 }
 
