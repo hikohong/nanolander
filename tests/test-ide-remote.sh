@@ -116,7 +116,7 @@ chk "real drift still counts"             "$(pending_count "$LOCKFILE")" "1"
 # --- the panes, as data ----------------------------------------------------
 IDE="$SRC_DIR/lua/hikovim/ide.lua"
 PLUGINS="$SRC_DIR/lua/hikovim/plugins.lua"
-VIDEO_LUA="$SRC_DIR/lua/hikovim/video.lua"
+MEDIA_LUA="$SRC_DIR/lua/hikovim/media.lua"
 
 chk "the explorer pane is the tree"  "$(grep -c "state.explorer then return 'neo-tree'" "$IDE")" "1"
 # neo-tree binds <2-LeftMouse> and nothing else, so one click only moved the
@@ -273,9 +273,14 @@ chk "the global window has none" \
 chk "it goes through the system"   "$(grep -c 'vim.ui.open(path)' "$IDE")" "1"
 chk "and names no player itself" \
   "$(grep -vE '^[[:space:]]*--' "$IDE" | grep -cE "'(vlc|mpv|ffplay|open|xdg-open)'")" "0"
-# One owner for the extension list, or a container gets a preview and no player.
-chk "it asks video.lua"            "$(grep -c 'video.is_video(path)' "$IDE")" "1"
-chk "which exports the answer"     "$(grep -c 'function M.is_video' "$VIDEO_LUA")" "1"
+# One owner for both extension lists, or a format gets a preview and no viewer.
+chk "it asks media.lua"            "$(grep -c 'media.opens_externally(path)' "$IDE")" "1"
+chk "which exports the answer" \
+  "$(grep -c 'function M.opens_externally' "$MEDIA_LUA")" "1"
+# A picture leaves for the same reason a video does, so it is the same branch
+# rather than a second one alongside it.
+chk "one branch for both kinds"    "$(grep -c 'local function external_path' "$IDE")" "1"
+chk "and no video-only branch"     "$(grep -c 'video_path' "$IDE")" "0"
 # A directory to expand and every other file keep doing what neo-tree
 # documents, so neither key is taken away from them.
 chk "anything else falls through" \

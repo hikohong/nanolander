@@ -12,6 +12,8 @@ set -uo pipefail
 . "$(dirname "$0")/lib.sh"
 
 VIDEO="$REPO_ROOT/share/nvim/lua/hikovim/video.lua"
+MEDIA="$REPO_ROOT/share/nvim/lua/hikovim/media.lua"
+PLUGINS_LUA="$REPO_ROOT/share/nvim/lua/hikovim/plugins.lua"
 INIT="$REPO_ROOT/share/nvim/lua/hikovim/init.lua"
 
 # --- shipped and wired -----------------------------------------------------
@@ -21,7 +23,20 @@ chk "and is set up"          "$(grep -c "require('hikovim.video').setup()" "$INI
 # BufReadCmd is the point: Neovim hands the whole read over, so the binary is
 # never loaded and never guessed at.
 chk "it replaces the read"   "$(grep -c "'BufReadCmd'" "$VIDEO")" "1"
-chk "containers are matched" "$(grep -c "'\*.mkv'" "$VIDEO")" "1"
+
+# The container list lives in media.lua, because three readers need the same
+# answer: video.lua's BufReadCmd, image.nvim's hijack_file_patterns, and
+# ide.lua's decision about what <CR> and a double click hand to the system.
+# image.nvim exposes no accessor for what it was told to hijack, so a second
+# copy is how a format ends up with a preview and no viewer, or the reverse.
+chk "media.lua ships"          "$(exists "$MEDIA")" "y"
+chk "containers are matched"   "$(grep -c "'\*.mkv'" "$MEDIA")" "1"
+chk "video.lua reads them"     "$(grep -c 'pattern = media.VIDEO' "$VIDEO")" "1"
+chk "and keeps no copy"        "$(grep -c "'\*.mkv'" "$VIDEO")" "0"
+chk "pictures are matched"     "$(grep -c "'\*.png'" "$MEDIA")" "1"
+chk "image.nvim reads them" \
+  "$(grep -c "hijack_file_patterns = require('hikovim.media').IMAGE" "$PLUGINS_LUA")" "1"
+chk "and keeps no copy either" "$(grep -c "'\*.png'" "$PLUGINS_LUA")" "0"
 
 # A preview that kept buftype '' would let :w write this text over the video.
 chk "the buffer cannot be written" "$(grep -c "buftype = 'nowrite'" "$VIDEO")" "1"
@@ -69,8 +84,9 @@ local sparse = v.describe('/tmp/odd.mkv', 'codec_name=theora')
 out:write('sparse_lines=' .. #sparse .. '\n')
 for i, l in ipairs(sparse) do out:write('sparse' .. i .. '=' .. l .. '\n') end
 
--- is_video answers the double click in the tree, and PATTERNS answers the
--- BufReadCmd. One list, so a container cannot get a preview and no player.
+-- media.lua answers what each preview claims and what the tree hands to the
+-- system. One table, so a format cannot get a preview and no viewer.
+local media = require('hikovim.media')
 for _, case in ipairs({
   { 'lower', 'a.mp4' }, { 'upper', 'A.MP4' }, { 'mkv', 'x.MKV' },
   { 'text', 'n.txt' }, { 'image', 'p.png' },
@@ -78,7 +94,21 @@ for _, case in ipairs({
   { 'indir', '/tmp/dir.mkv/file.txt' },
   { 'nil', nil }, { 'empty', '' },
 }) do
-  out:write('isvideo_' .. case[1] .. '=' .. tostring(v.is_video(case[2])) .. '\n')
+  out:write('isvideo_' .. case[1] .. '=' .. tostring(media.is_video(case[2])) .. '\n')
+end
+for _, case in ipairs({
+  { 'png', 'a.png' }, { 'jpgup', 'B.JPG' }, { 'jpeg', 'c.jpeg' },
+  { 'gif', 'd.gif' }, { 'webp', 'e.webp' }, { 'avif', 'f.avif' },
+  { 'bmp', 'g.bmp' }, { 'video', 'h.mp4' }, { 'text', 'i.txt' },
+  { 'bare', '.png' }, { 'nil', nil },
+}) do
+  out:write('isimage_' .. case[1] .. '=' .. tostring(media.is_image(case[2])) .. '\n')
+end
+for _, case in ipairs({
+  { 'video', 'a.mp4' }, { 'image', 'b.png' }, { 'text', 'c.txt' },
+}) do
+  out:write('external_' .. case[1] .. '=' ..
+    tostring(media.opens_externally(case[2])) .. '\n')
 end
 out:close()
 LUA
@@ -100,9 +130,9 @@ LUA
   chk "a sparse file still formats" "$(got sparse_lines=)" "sparse_lines=2"
   chk "and prints only what it has" "$(got sparse2=)" "sparse2=  theora"
 
-  # is_video is what the double click in the tree asks, and it reads the same
-  # PATTERNS the BufReadCmd does — one list, or a container gets a preview and
-  # no player, or the reverse.
+  # media.is_video is where the BufReadCmd pattern list comes from, and what the
+  # tree asks before handing a file over — one table, or a container gets a
+  # preview and no viewer, or the reverse.
   chk "a video is one"              "$(got isvideo_lower=)" "isvideo_lower=true"
   # A file off a camera or a screen recorder is often shouted.
   chk "case does not matter"        "$(got isvideo_upper=)" "isvideo_upper=true"
@@ -119,6 +149,27 @@ LUA
   # The tree can hand over a node with no path at all.
   chk "nil is not a video"          "$(got isvideo_nil=)"   "isvideo_nil=false"
   chk "nor is an empty name"        "$(got isvideo_empty=)" "isvideo_empty=false"
+
+  # The picture half of the same table, and exactly what image.nvim is told to
+  # hijack — so the editor previews and the system opens the same set.
+  chk "a png is an image"           "$(got isimage_png=)"   "isimage_png=true"
+  chk "shouted names count too"     "$(got isimage_jpgup=)" "isimage_jpgup=true"
+  chk "jpeg is one"                 "$(got isimage_jpeg=)"  "isimage_jpeg=true"
+  chk "gif is one"                  "$(got isimage_gif=)"   "isimage_gif=true"
+  chk "webp is one"                 "$(got isimage_webp=)"  "isimage_webp=true"
+  chk "avif is one"                 "$(got isimage_avif=)"  "isimage_avif=true"
+  chk "bmp is one"                  "$(got isimage_bmp=)"   "isimage_bmp=true"
+  chk "a video is not an image"     "$(got isimage_video=)" "isimage_video=false"
+  chk "nor is a text file"          "$(got isimage_text=)"  "isimage_text=false"
+  chk "nor a bare extension either" "$(got isimage_bare=)"  "isimage_bare=false"
+  chk "nor nil"                     "$(got isimage_nil=)"   "isimage_nil=false"
+
+  # Both kinds leave for the same reason: a preview is a still frame or a
+  # thumbnail painted on the terminal, and looking at either properly belongs to
+  # an application the system already knows about.
+  chk "a video opens externally"    "$(got external_video=)" "external_video=true"
+  chk "so does a picture"           "$(got external_image=)" "external_image=true"
+  chk "a text file does not"        "$(got external_text=)"  "external_text=false"
 fi
 
 finish
