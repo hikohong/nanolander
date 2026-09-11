@@ -118,6 +118,13 @@ IDE="$SRC_DIR/lua/hikovim/ide.lua"
 PLUGINS="$SRC_DIR/lua/hikovim/plugins.lua"
 
 chk "the explorer pane is the tree"  "$(grep -c "state.explorer then return 'neo-tree'" "$IDE")" "1"
+# neo-tree binds <2-LeftMouse> and nothing else, so one click only moved the
+# cursor and the pane read as dead. The mapping delegates to whatever <CR> is
+# bound to rather than calling neo-tree's command modules, so a rename behind
+# its keymaps cannot break it.
+chk "one click opens in the tree"    "$(grep -c "'<LeftRelease>', tree_click" "$IDE")" "1"
+chk "and it is switchable"           "$(grep -c 'local CLICK_OPENS' "$IDE")" "1"
+chk "the click delegates to <CR>"    "$(grep -c "maparg('<CR>', 'n', false, true)" "$IDE")" "1"
 chk "the tree pane is recognised"    "$(grep -c "kind == 'neo-tree'" "$IDE")" "2"
 chk "flatten can find the editor"    "$(grep -c 'function M.editor_win' "$IDE")" "1"
 chk "neo-tree is installed"          "$(grep -c 'nvim-neo-tree/neo-tree.nvim' "$PLUGINS")" "1"
