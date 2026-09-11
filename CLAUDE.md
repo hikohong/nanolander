@@ -61,7 +61,7 @@ rather than one-offs.
 ├── share/
 │   └── nvim/              ← the Neovim config, vendored here on purpose
 │       ├── init.vim       ← layers 1 and 2: sources ~/.vimrc, patches Neovim
-│       ├── lua/hikovim/   ← layer 3: init, plugins, lsp, keys, ide, video
+│       ├── lua/hikovim/   ← layer 3: init, plugins, lsp, keys, ide, video, media
 │       └── lazy-lock.json ← the pinned plugin set; written by --freeze
 ├── tests/                 ← the suites; ./tests/run.sh runs them all
 ├── .github/workflows/     ← CI: the only gate on an auto-merged PR
@@ -245,6 +245,25 @@ Rules that are easy to break:
   625 KB of sixel, so 24 fps is 14 MB/s of escape sequences, and a sixel image
   is painted on the terminal rather than owned by a buffer, so every statusline
   tick tears it. Hand a video to `open` or `mpv --vo=tct` instead.
+- **`<CR>` and a double click in the tree hand a video or a picture to the
+  system; a single click previews it.** Both keys mean "I have chosen this one",
+  a single click means "show me this one". Three things make it work and each
+  has already been got wrong once. It goes through `vim.ui.open`, so no
+  application is named twice — `bin/vlc-default` owns the video binding and the
+  system owns the picture one. The single click **must not move the cursor out
+  of the tree**, because a mouse mapping is looked up in the buffer that is
+  current when the key is processed, so a preview that jumps to the editor pane
+  leaves the second click of a double click reaching nothing. And a plain keymap
+  asking neo-tree for its state must use `get_state_for_window`:
+  `get_state('filesystem')` returns the state held *for the tab*, and this tree
+  is at `position = 'current'`, whose state is held per window, so that call
+  creates and returns an empty one and every click falls through to `<CR>`.
+- **`media.lua` owns both extension lists, and nothing else may keep a copy.**
+  `video.lua`'s `BufReadCmd`, image.nvim's `hijack_file_patterns` and `ide.lua`'s
+  tree handoff all read it. image.nvim exposes no accessor for what it was told
+  to hijack, so a second copy is how a format gets a preview and no viewer, or
+  the reverse. It matches the file *name*: matching the whole path hands a text
+  file to the viewer because a directory above it is called `something.mkv`.
 - **The video buffer is `nowrite`.** It keeps the real filename, so without that
   a `:w` would write the preview text over the video.
 - **iTerm2 does not speak the Kitty graphics protocol, and every Neovim image

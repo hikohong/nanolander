@@ -28,12 +28,11 @@
 
 local M = {}
 
--- Extensions worth intercepting. Containers, not codecs — this is about what
--- the file is called.
-local PATTERNS = {
-  '*.mp4', '*.m4v', '*.mkv', '*.mov', '*.avi', '*.webm',
-  '*.flv', '*.wmv', '*.mpg', '*.mpeg', '*.ts', '*.m2ts',
-}
+-- The extensions worth intercepting live in media.lua, because ide.lua needs
+-- the same list to decide what a double click hands to the system viewer, and
+-- image.nvim needs the picture half of it. Two copies is how a container gets
+-- a preview and no viewer.
+local media = require('hikovim.media')
 
 -- Room for the picture underneath the text. A terminal-painted image is not
 -- made of buffer lines, so without these the window is mostly `~` and
@@ -42,23 +41,6 @@ local FILLER_LINES = 60
 
 local function have(cmd)
   return vim.fn.executable(cmd) == 1
-end
-
--- is_video — does this name look like one of the containers above?
---
--- The extension list has one owner, so ide.lua asks rather than keeping a copy:
--- a double click in the tree hands a video to the system player, and "is this a
--- video" has to be the same answer in both places or a container gets a preview
--- and no player, or the reverse. PATTERNS are autocmd globs; here only the
--- extension matters.
-function M.is_video(path)
-  if type(path) ~= 'string' or path == '' then return false end
-  local name = vim.fn.fnamemodify(path, ':t'):lower()
-  for _, pattern in ipairs(PATTERNS) do
-    local ext = pattern:match('^%*(%.%w+)$')
-    if ext and #name > #ext and name:sub(-#ext) == ext then return true end
-  end
-  return false
 end
 
 -- hms — 134.6 seconds as 00:02:14.
@@ -222,7 +204,7 @@ end
 function M.setup()
   vim.api.nvim_create_autocmd('BufReadCmd', {
     group = vim.api.nvim_create_augroup('hikovim_video', { clear = true }),
-    pattern = PATTERNS,
+    pattern = media.VIDEO,
     callback = function(ev)
       -- BufReadCmd means Neovim hands the whole read over, so returning
       -- without filling the buffer would leave it empty. Anything unreadable

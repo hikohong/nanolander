@@ -244,12 +244,13 @@ return {
         },
       },
       filesystem = {
-        -- <CR> and a double click on a video hand it to the system player
-        -- instead of previewing it: `open` on macOS, so the LaunchServices
-        -- binding decides — VLC on a machine that has run bin/vlc-default. Both
-        -- are bound because both mean "I have chosen this one"; a single click
-        -- means "show me this one" and still previews. Every other file, and a
-        -- directory, keep neo-tree's own open. See ide.tree_open.
+        -- <CR> and a double click on a video or a picture hand it to the
+        -- system's own application instead of previewing it: `open` on macOS, so
+        -- the LaunchServices binding decides — VLC for a video on a machine that
+        -- has run bin/vlc-default, and whatever already opens pictures there.
+        -- Both keys are bound because both mean "I have chosen this one"; a
+        -- single click means "show me this one" and still previews. Every other
+        -- file, and a directory, keep neo-tree's own open. See ide.tree_open.
         --
         -- Bound on the source rather than globally: the fall-through calls the
         -- filesystem source's own open, so this must not reach a source that
@@ -262,7 +263,7 @@ return {
                 if not ok then return end
                 ide.tree_open(state)
               end,
-              desc = 'open — a video goes to the system player',
+              desc = 'open — a video or picture goes to the system',
             }
             return { ['<CR>'] = choose, ['<2-LeftMouse>'] = choose }
           end)(),
@@ -322,9 +323,13 @@ return {
       processor = 'magick_cli',
       -- Opening one of these shows the picture rather than the bytes. This is
       -- the setting the whole thing rests on.
-      hijack_file_patterns = {
-        '*.png', '*.jpg', '*.jpeg', '*.gif', '*.webp', '*.avif', '*.bmp',
-      },
+      --
+      -- The list lives in media.lua, because ide.lua needs the same one to
+      -- decide what <CR> and a double click hand to the system viewer. Asking
+      -- image.nvim was not an option: the module it returns has no accessor for
+      -- its own options, so a second copy here is how the editor would end up
+      -- previewing a format the tree refuses to open, or the reverse.
+      hijack_file_patterns = require('hikovim.media').IMAGE,
       -- Four panes means windows are always next to each other, and a sixel
       -- image is painted on the terminal rather than owned by a buffer: without
       -- this it stays on screen over whatever moves in front of it.

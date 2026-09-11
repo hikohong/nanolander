@@ -576,15 +576,16 @@ function M.tree_open_request(args)
   return { handled = true }
 end
 
--- video_path — the file under a tree node, when that file is a video.
+-- external_path — the file under a tree node, when it is one the editor can
+-- preview but cannot really show you: a video, or a picture.
 --
--- video.lua owns the extension list and answers this, because a second copy of
--- it means a container gets a preview and no player, or the reverse.
-local function video_path(node)
+-- media.lua owns both extension lists and answers this, because a second copy
+-- of either means a format gets a preview and no viewer, or the reverse.
+local function external_path(node)
   local path = (node and node.type == 'file') and node.path or nil
   if not path then return nil end
-  local ok, video = pcall(require, 'hikovim.video')
-  if not (ok and video.is_video(path)) then return nil end
+  local ok, media = pcall(require, 'hikovim.media')
+  if not (ok and media.opens_externally(path)) then return nil end
   return path
 end
 
@@ -614,70 +615,81 @@ local function tree_node()
   return node_of(tree_state)
 end
 
--- hand_to_player — what to do with a video, which is not to play it here.
+-- hand_to_system — what to do with a video or a picture, which is not to show
+-- it properly here.
 --
--- video.lua previews a video and deliberately plays nothing: a sixel frame is
--- painted on the terminal rather than owned by a buffer, so 24 fps of them
--- would be 14 MB/s of escape sequences with the statusline tearing through
--- every one. What it says to do instead is hand the file to something that
--- watches files, and this is that. vim.ui.open is `open` on macOS and
--- `xdg-open` on a Linux desktop, so the file goes to whatever owns the type
--- — which on a machine that has run bin/vlc-default is VLC. Nothing here names
--- VLC: that binding belongs to the system, and saying it twice is how the two
--- come apart.
-local function hand_to_player(path)
+-- The preview is the point of the boundary, not a shortfall of it. video.lua
+-- draws one frame and plays nothing: a sixel image is painted on the terminal
+-- rather than owned by a buffer, so 24 fps would be 14 MB/s of escape sequences
+-- with the statusline tearing through every one. A picture has the same ceiling
+-- from the other side — sixel in a pane a third of the screen wide is a
+-- thumbnail, not a look at the image. Both say the same thing: hand the file to
+-- the application that does this.
+--
+-- vim.ui.open is `open` on macOS and `xdg-open` on a Linux desktop, so the file
+-- goes to whatever owns the type — VLC for a video on a machine that has run
+-- bin/vlc-default, and whatever the system already opens pictures with. Nothing
+-- here names an application: that binding belongs to the system, and saying it
+-- twice is how the two come apart.
+local function hand_to_system(path)
   -- vim.ui.open answers nil and a reason rather than throwing, and a box with
   -- no desktop is exactly that case — over SSH there is nothing to hand a file
   -- to. Say so; silence here is indistinguishable from a click that missed.
   local opened, err = vim.ui.open(path)
-  if not opened then
-    vim.notify(("cannot open %s: %s\nOver SSH, try mpv --vo=tct"):format(
-      vim.fn.fnamemodify(path, ':t'), err or 'no handler for this file type'),
-      vim.log.levels.WARN)
-  end
+  if opened then return end
+
+  local why = err or 'no handler for this file type'
+  -- The remote answer differs by kind, so only offer the one that applies.
+  local ok, media = pcall(require, 'hikovim.media')
+  local hint = (ok and media.is_video(path))
+    and '\nOver SSH, try mpv --vo=tct'
+    or '\nOver SSH, the preview in the editor pane is what there is.'
+  vim.notify(('cannot open %s: %s%s'):format(
+    vim.fn.fnamemodify(path, ':t'), why, hint), vim.log.levels.WARN)
 end
 
--- tree_open — <CR> and the double click in the explorer pane. A video goes to
--- the system player; everything else — a directory to expand, any other file —
--- goes to neo-tree's own open, so both keep doing what neo-tree documents.
+-- tree_open — <CR> and the double click in the explorer pane. A video or a
+-- picture goes to the system's own application; everything else — a directory
+-- to expand, any other file — goes to neo-tree's own open, so both keep doing
+-- what neo-tree documents.
 --
 -- Both are bound, because both mean "I have chosen this one". A single click
 -- means "show me this one", which is tree_click below.
 ---@param tree_state table neo-tree's state for the source the mapping fired in
 function M.tree_open(tree_state)
-  local path = video_path(node_of(tree_state))
+  local path = external_path(node_of(tree_state))
   if not path then
     pcall(function()
       require('neo-tree.sources.filesystem.commands').open(tree_state)
     end)
     return
   end
-  hand_to_player(path)
+  hand_to_system(path)
 end
 
--- The explorer pane needs no <CR> of its own for anything but a video: neo-tree
--- expands and collapses a directory in place, and a file goes through
--- tree_open_request above.
+-- The explorer pane needs no <CR> of its own for anything but a video or a
+-- picture: neo-tree expands and collapses a directory in place, and a file goes
+-- through tree_open_request above.
 --
 -- It does need a single click. neo-tree binds <2-LeftMouse> and nothing else,
 -- so one click only moved the cursor, which is indistinguishable from a pane
 -- that does not work.
 --
--- For anything but a video, tree_click delegates to whatever <CR> is bound to
--- in that buffer rather than calling into neo-tree's own command modules. The
--- click has already moved the cursor by the time <LeftRelease> is processed, so
--- <CR>'s handler is looking at the line that was clicked, and this keeps
--- working if neo-tree renames anything behind its keymaps.
+-- For anything the system does not own, tree_click delegates to whatever <CR> is
+-- bound to in that buffer rather than calling into neo-tree's own command
+-- modules. The click has already moved the cursor by the time <LeftRelease> is
+-- processed, so <CR>'s handler is looking at the line that was clicked, and this
+-- keeps working if neo-tree renames anything behind its keymaps.
 --
--- A video is the exception, and for two reasons that point the same way. One
--- click means "show me this one", so it previews rather than starting a player.
--- And it must leave the cursor in the tree, because a mouse mapping is looked
--- up in the buffer that is current when the key is processed: the first click
--- of a double click used to open the preview *and* jump to the editor pane,
--- where <2-LeftMouse> is not mapped, so the second click reached nothing and
--- the double click did nothing at all.
+-- A video and a picture are the exception, and for two reasons that point the
+-- same way. One click means "show me this one", so it previews rather than
+-- starting an application. And it must leave the cursor in the tree, because a
+-- mouse mapping is looked up in the buffer that is current when the key is
+-- processed: the first click of a double click used to open the preview *and*
+-- jump to the editor pane, where <2-LeftMouse> is not mapped, so the second
+-- click reached nothing and the double click did nothing at all.
 local function tree_click()
-  local path = video_path(tree_node())
+  local path = external_path(tree_node())
   if path then
     open_in_editor(path, nil, false)
     return
