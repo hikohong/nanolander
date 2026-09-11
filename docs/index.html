@@ -277,9 +277,9 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
         <p>Set git-delta as the global Git pager, so <code>git diff</code>, <code>git log</code>, and <code>git show</code> get syntax highlighting and line numbers, and switch merge conflicts to zdiff3. Skipped with a warning if git or delta is missing.</p>
       </div>
       <div class="opt">
-        <kbd>--with-nvim-config</kbd>
-        <p>Install the Neovim configuration too, by handing off to <code>./bin/nvim-land --apply</code> once the tools are in. Without it the editor is installed but left unconfigured. Skipped with a warning when Neovim is missing, or when the helper is not beside this script.</p>
-        <div class="ex">./bin/nanolander --with-nvim-config</div>
+        <kbd>--without-nvim-config</kbd>
+        <p>The Neovim configuration is installed <strong>by default</strong>, by handing off to <code>./bin/nvim-land --apply</code> once the tools are in. This flag opts out and leaves <code>~/.config/nvim</code> alone; so does filtering Neovim out with <code>--only</code> or <code>--skip</code>. <code>--with-nvim-config</code> is still accepted and now does nothing. Skipped with a warning when Neovim is missing, or when the helper is not beside this script.</p>
+        <div class="ex">./bin/nanolander --without-nvim-config</div>
       </div>
       <div class="opt">
         <kbd>--restore-shell</kbd>
@@ -546,7 +546,7 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
 
   <section id="nvim">
     <h2>Neovim config</h2>
-    <p class="sub">The main script installs Neovim. <code>bin/nvim-land</code> configures it, as a separate step: a configuration is an opinion, and installing a binary is not.</p>
+    <p class="sub">The main script installs Neovim and this configuration with it. <code>bin/nvim-land</code> is that step on its own — how you inspect it, redo it, or undo it. Opt out with <code>--without-nvim-config</code>.</p>
 <pre class="block"><span class="c"># look first</span>
 <span class="p">$</span> ./bin/nvim-land
 <span class="c"># back up ~/.config/nvim, then install</span>
@@ -669,7 +669,7 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
       <li><b>armv6</b> — official release coverage is thin; tools without a matching build are reported as FAILED, so pair it with <code>--only</code>.</li>
       <li><b>Neovide on a server</b> — it is a GUI client and needs a desktop, so on a headless box there is nothing to display; <code>--skip neovide</code> keeps the summary tidy.</li>
       <li><b>yazi shows boxes, not a picture</b> — the backends are installed but the terminal cannot draw an image. yazi uses the Kitty graphics protocol, iTerm2 inline images, or sixel; all three are escape sequences and so do travel over SSH, but it is the terminal on your own laptop that has to support them. Inside tmux add <code>set -g allow-passthrough on</code>. Ueberzug is the one adapter that cannot work remotely, because it needs a local display. <code>yazi --debug</code> reports what was detected.</li>
-      <li><b>Configuring Neovim</b> — installing the binary does not configure it. Run <code>./bin/nvim-land</code> for a report, then <code>--apply</code>.</li>
+      <li><b>Configuring Neovim</b> — a normal run does it. If <code>~/.config/nvim</code> looks untouched, the run either filtered Neovim out with <code>--only</code> / <code>--skip</code> or was given <code>--without-nvim-config</code>; <code>./bin/nvim-land</code> reports what is missing and <code>--apply</code> installs it.</li>
       <li><b>Re-runs</b> — safe at any time. Installed tools show as existing and shell configuration is never added twice.</li>
     </ul>
   </section>

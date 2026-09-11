@@ -131,7 +131,10 @@ OPT_SHELL=""      # --shell bash|zsh, empty when not given
 OPT_SET_DEFAULT_SHELL=0
 OPT_WITH_ALIASES=0
 OPT_CONFIGURE_GIT=0
-OPT_WITH_NVIM_CONFIG=0
+# On by default: landing the toolkit and then finding a stock Neovim is the
+# surprise, not the other way round. --without-nvim-config opts out, and a run
+# that filters nvim out with --only / --skip does not configure it either.
+OPT_WITH_NVIM_CONFIG=1
 
 RESULTS=""        # cmd|status|source|path per line
 COUNT_SUCCESS=0
@@ -180,8 +183,13 @@ OPTIONS:
       --set-default-shell Switch the login shell to zsh (macOS / Amazon Linux).
       --with-aliases      Add the optional alias block to the shell rc file.
       --configure-git     Set git-delta as the global git pager.
-      --with-nvim-config  Also install the Neovim configuration, by running
-                          ./bin/nvim-land --apply once the tools are in.
+      --without-nvim-config
+                          Leave ~/.config/nvim alone. The Neovim configuration
+                          is installed by default, by running
+                          ./bin/nvim-land --apply once the tools are in; a run
+                          that filters nvim out with --only or --skip does not
+                          configure it either. --with-nvim-config still works
+                          and now does nothing.
       --restore-shell     Restore the most recent shell config backup.
       --uninstall         Remove the shell configuration and the tools this
                           script installed under ~/.local.
@@ -202,7 +210,7 @@ EXAMPLES:
   ./bin/nanolander --skip lazydocker,dive
   ./bin/nanolander --shell zsh
   ./bin/nanolander --set-default-shell --with-aliases --configure-git
-  ./bin/nanolander --with-nvim-config
+  ./bin/nanolander --without-nvim-config
   ./bin/nanolander --restore-shell
   ./bin/nanolander --uninstall
 
@@ -218,8 +226,9 @@ EXIT CODES:
   130 interrupted
 
 COMPANION SCRIPTS:
-  ./bin/nvim-land    Install the Neovim configuration that goes with these
-                     tools (reports by default, writes with --apply).
+  ./bin/nvim-land    The Neovim configuration that goes with these tools. A
+                     normal run installs it; call it directly to report what
+                     would change (it reports by default, writes with --apply).
   ./bin/iterm-tune   iTerm2 performance tuning, macOS only.
 
 UNDOING A RUN:
@@ -252,7 +261,8 @@ CATALOG
   printf 'published for macOS and x86_64 Linux only, and yazi has no 32-bit ARM build\n'
   printf 'anywhere. Where there is nothing to fetch the tool is SKIPPED, not FAILED.\n'
   printf 'The preview backends exist for yazi; each is useful on its own too.\n'
-  printf 'Neovim configuration is a separate step: ./bin/nvim-land\n'
+  printf 'Neovim is configured as part of a normal run; opt out with\n'
+  printf '--without-nvim-config, or run ./bin/nvim-land on its own.\n'
 }
 
 # ---------------------------------------------------------------------------
@@ -285,7 +295,10 @@ parse_args() {
       --set-default-shell) OPT_SET_DEFAULT_SHELL=1 ;;
       --with-aliases) OPT_WITH_ALIASES=1 ;;
       --configure-git) OPT_CONFIGURE_GIT=1 ;;
+      # Kept as a no-op: it is the default now, and a script or a note that
+      # still passes it must not start failing on an unknown option.
       --with-nvim-config) OPT_WITH_NVIM_CONFIG=1 ;;
+      --without-nvim-config) OPT_WITH_NVIM_CONFIG=0 ;;
       --version) printf 'nanolander %s\n' "$NANOLANDER_VERSION"; exit "$EXIT_OK" ;;
       --) shift; break ;;
       *)
@@ -2310,7 +2323,11 @@ run_all() {
   configure_shell
   [ "$OPT_CONFIGURE_GIT" -eq 1 ] && configure_git_pager
   [ "$OPT_SET_DEFAULT_SHELL" -eq 1 ] && set_default_shell
-  [ "$OPT_WITH_NVIM_CONFIG" -eq 1 ] && install_nvim_config
+  # wants_tool is what --only / --skip speak through. Asking for --only tmux
+  # and having ~/.config/nvim rewritten would contradict what --only promises.
+  if [ "$OPT_WITH_NVIM_CONFIG" -eq 1 ] && wants_tool nvim Neovim; then
+    install_nvim_config
+  fi
 
   print_summary
   report_preview_notes

@@ -38,12 +38,47 @@ chmod +x "$NVIM_STUB/nvim"
 LINK="$H/bin"; mkdir -p "$LINK"
 ln -sf "$REPO_ROOT/bin/nanolander" "$LINK/nanolander"
 
-out=$(PATH="$NVIM_STUB:$PATH" "$LINK/nanolander" --only git --with-nvim-config 2>&1); rc=$?
+out=$(PATH="$NVIM_STUB:$PATH" "$LINK/nanolander" --only git,nvim --with-nvim-config 2>&1); rc=$?
 chk "the whole run exits 0"            "$rc" "0"
 chk "handoff survives a symlinked \$0" "$(printf '%s' "$out" | grep -c 'bin/nvim-land --apply')" "1"
 chk "helper is not reported missing"   "$(printf '%s' "$out" | grep -c 'Cannot find bin/nvim-land')" "0"
 chk "the config actually lands"        "$(exists "$H/.config/nvim/init.vim")" "y"
 chk "and the run still succeeds"       "$(printf '%s' "$out" | grep -c 'Neovim configuration installed')" "1"
+
+# The configuration is installed by DEFAULT: the owner's ask was that landing
+# the toolkit leaves a configured editor, not a stock one. A test that always
+# passes the flag cannot see the default, so this one must not pass it — and
+# --with-nvim-config has to keep being accepted, since notes and scripts still
+# carry it.
+rm -rf "$H/.config/nvim"
+out=$(PATH="$NVIM_STUB:$PATH" "$LINK/nanolander" --only git,nvim 2>&1); rc=$?
+chk "no flag still installs it"        "$(exists "$H/.config/nvim/init.vim")" "y"
+chk "the default run exits 0"          "$rc" "0"
+
+# ...and --without-nvim-config is the way out. This is the assertion that fails
+# if the opt-out is ever wired to the wrong variable.
+rm -rf "$H/.config/nvim"
+out=$(PATH="$NVIM_STUB:$PATH" "$LINK/nanolander" --only git,nvim --without-nvim-config 2>&1); rc=$?
+chk "the opt-out leaves nvim alone"    "$(exists "$H/.config/nvim/init.vim")" "n"
+chk "and it does not hand off"         "$(printf '%s' "$out" | grep -c 'bin/nvim-land --apply')" "0"
+chk "the opt-out run exits 0"          "$rc" "0"
+
+# --only tmux promises to touch only tmux. Rewriting ~/.config/nvim on a run
+# that filtered Neovim out would contradict that, and the flag defaulting to on
+# is exactly what could make it happen — nvim is present on any machine that
+# has landed the toolkit, so command_works would not stop it.
+rm -rf "$H/.config/nvim"
+out=$(PATH="$NVIM_STUB:$PATH" "$LINK/nanolander" --only git 2>&1); rc=$?
+chk "--only without nvim skips it"     "$(exists "$H/.config/nvim/init.vim")" "n"
+chk "and it does not hand off either"  "$(printf '%s' "$out" | grep -c 'bin/nvim-land --apply')" "0"
+
+# The --skip side of the same gate. It cannot be driven through the whole
+# script: --only and --skip are refused together, and a bare `--skip nvim` run
+# would install the other 50-odd tools over the network. The run above proves
+# the gate asks wants_tool; this proves wants_tool answers for --skip too.
+chk "wants_tool honours --skip nvim" \
+  "$(NANOLANDER_LIB=1 bash -c '. "$0"; SKIP_LIST=nvim; ONLY_LIST=""; wants_tool nvim Neovim && echo y || echo n' \
+     "$REPO_ROOT/bin/nanolander" 2>&1)" "n"
 
 # Without Neovim there is nothing to configure, and that is a warning rather
 # than a stop. NVIM_STUB is deliberately not on PATH here — and neither is the
