@@ -6,11 +6,16 @@
 --   │ file content             │ function list │   aerial.nvim
 --   │ (the editor)             │               │
 --   │                          ├───────────────┤
---   ├──────────────────────────┤ file explorer │   oil.nvim
+--   ├──────────────────────────┤ file tree     │   neo-tree.nvim
 --   │ shells, listed in its    │               │
 --   │ winbar: 1 zsh ✕ 2 zsh ✕ +│               │
 --   └──────────────────────────┴───────────────┘
 --         left : right  =  4 : 1
+--
+-- The explorer pane is a whole-project tree, which is the one thing oil
+-- cannot be: oil shows one directory at a time on purpose. oil is still the
+-- directory *editor* and still answers <F5> and :e of any directory, so
+-- nothing moved — a second plugin was added beside it.
 --
 --   :IDE        build the layout (or focus the editor when it is up)
 --   :IDEClose   drop the three panels, keep the file you were editing
@@ -105,6 +110,14 @@ function M.panels()
     if alive(win) then table.insert(wins, win) end
   end
   return wins
+end
+
+-- editor_win — the one window in this layout that shows file contents, or nil
+-- with the layout off. flatten.nvim asks for it: a `nvim file` typed in the
+-- terminal pane is a separate process, so the only way its file reaches the
+-- right window is for the host to be told which window that is.
+function M.editor_win()
+  return alive(state.editor) and state.editor or nil
 end
 
 -- resize — re-apply the ratios. Called after building and on every VimResized,
@@ -339,6 +352,37 @@ vim.cmd([[
 ]])
 
 -- ---------------------------------------------------------------------------
+-- The file tree
+-- ---------------------------------------------------------------------------
+
+-- open_tree — render neo-tree into a window this layout already built.
+--
+-- neo-tree's `current` position means "the window that is focused right now",
+-- and it reads that when the command runs. So the window has to be genuinely
+-- focused rather than borrowed through nvim_win_call, which restores focus
+-- before neo-tree's own scheduled work has looked. Focus is put back after.
+local function open_tree(win)
+  if not alive(win) then return false end
+  local ok, cmd = pcall(require, 'neo-tree.command')
+  if not ok then
+    vim.notify('[nanolander] neo-tree.nvim is not installed yet (:Lazy sync).',
+      vim.log.levels.WARN)
+    return false
+  end
+
+  local here = vim.api.nvim_get_current_win()
+  vim.api.nvim_set_current_win(win)
+  local done = pcall(cmd.execute, {
+    action = 'show',
+    source = 'filesystem',
+    position = 'current',
+    dir = vim.fn.getcwd(),
+  })
+  if alive(here) then vim.api.nvim_set_current_win(here) end
+  return done
+end
+
+-- ---------------------------------------------------------------------------
 -- Keeping each pane to its own job
 -- ---------------------------------------------------------------------------
 --
@@ -350,7 +394,7 @@ vim.cmd([[
 -- What each pane is allowed to hold.
 local function pane_kind(win)
   if win == state.outline then return 'aerial' end
-  if win == state.explorer then return 'oil' end
+  if win == state.explorer then return 'neo-tree' end
   if win == state.term then return 'terminal' end
   return nil
 end
@@ -358,11 +402,12 @@ end
 local function buf_fits(kind, buf)
   if not (buf and vim.api.nvim_buf_is_valid(buf)) then return false end
   if kind == 'terminal' then return vim.bo[buf].buftype == 'terminal' end
-  if kind == 'oil' then
-    -- A directory oil has just created is an oil:// buffer before its
-    -- filetype is set, so the name is the reliable half of this test.
-    return vim.bo[buf].filetype == 'oil'
-      or vim.api.nvim_buf_get_name(buf):match('^oil://') ~= nil
+  if kind == 'neo-tree' then
+    -- A tree neo-tree is still building is a neo-tree:// buffer before its
+    -- filetype is set, so the name is the reliable half of this test — the
+    -- same trap oil had here before it.
+    return vim.bo[buf].filetype == 'neo-tree'
+      or vim.api.nvim_buf_get_name(buf):match('^neo%-tree') ~= nil
   end
   return vim.bo[buf].filetype == kind
 end
@@ -386,10 +431,8 @@ local function restore_pane(win, kind)
     return
   end
   local here = vim.api.nvim_get_current_win()
-  if kind == 'oil' then
-    vim.api.nvim_win_call(win, function()
-      pcall(function() require('oil').open(vim.fn.getcwd()) end)
-    end)
+  if kind == 'neo-tree' then
+    open_tree(win)
   elseif kind == 'aerial' then
     pcall(function() require('aerial').open_in_win(win, state.editor) end)
   elseif kind == 'terminal' then
@@ -454,30 +497,11 @@ local function relocate_quickfix(buf)
   if not follow and alive(here) then vim.api.nvim_set_current_win(here) end
 end
 
--- explorer_select — <CR> and double click in the bottom-right pane. A
--- directory is walked in place, so that pane stays a file list; a file goes
--- to the editor pane and the cursor follows it. oil's own select is used
--- unchanged when the cursor is in an oil buffer outside the layout, so <F5>
--- still behaves as it always did.
-local function explorer_select()
-  local ok, oil = pcall(require, 'oil')
-  if not ok then return end
-  local pane = state.explorer
-  if vim.api.nvim_get_current_win() ~= pane then
-    oil.select()
-    return
-  end
-  oil.select({
-    handle_buffer_callback = function(buf)
-      if vim.api.nvim_buf_get_name(buf):match('^oil://') then
-        vim.api.nvim_win_set_buf(pane, buf)
-        state.pane_buf[pane] = buf
-      else
-        show_in_editor(buf)
-      end
-    end,
-  })
-end
+-- The explorer pane needs no <CR> of its own any more. neo-tree expands and
+-- collapses a directory in place, and for a file it asks for a window that is
+-- none of open_files_do_not_replace_types — the terminal, the outline and oil
+-- are all named there — which leaves the editor pane. enforce stays the
+-- backstop for anything that still lands in a panel.
 
 -- outline_select — the same rule for the top-right pane: aerial jumps in the
 -- editor window, never in whichever window it last saw the cursor in, which
@@ -518,15 +542,9 @@ function M.open()
   state.term = vim.api.nvim_get_current_win()
   open_terminal(state.term)
 
-  -- oil.nvim in the bottom right. A directory buffer, so dd, p and :w edit
-  -- the filesystem here exactly as they do in a full-window oil.
-  vim.api.nvim_set_current_win(state.explorer)
-  local ok, oil = pcall(require, 'oil')
-  if ok then
-    oil.open(vim.fn.getcwd())
-  else
-    vim.notify('[nanolander] oil.nvim is not installed yet (:Lazy sync).', vim.log.levels.WARN)
-  end
+  -- neo-tree in the bottom right: the whole project, expandable, following
+  -- whichever file the editor pane is on.
+  open_tree(state.explorer)
 
   -- aerial in the top right, pointed at the editor pane. open_in_win is
   -- aerial's own hook for custom layouts, so it fills a window we placed
@@ -815,19 +833,8 @@ function M.setup()
 
   local group = vim.api.nvim_create_augroup('hikovim_ide', { clear = true })
 
-  -- <CR> and double click, in both panes, obey the one-editor-window rule.
-  vim.api.nvim_create_autocmd('FileType', {
-    group = group,
-    pattern = 'oil',
-    callback = function(ev)
-      local opts = { buffer = ev.buf, silent = true, nowait = true }
-      vim.keymap.set('n', '<CR>', explorer_select,
-        vim.tbl_extend('force', opts, { desc = 'Open — files go to the editor pane' }))
-      vim.keymap.set('n', '<2-LeftMouse>', explorer_select,
-        vim.tbl_extend('force', opts, { desc = 'Open — files go to the editor pane' }))
-    end,
-  })
-
+  -- <CR> and double click in the outline obey the one-editor-window rule. The
+  -- explorer pane needs no equivalent; see the note above outline_select.
   vim.api.nvim_create_autocmd('FileType', {
     group = group,
     pattern = 'aerial',

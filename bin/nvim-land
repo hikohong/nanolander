@@ -173,10 +173,18 @@ foreign_files() {
       done
 }
 
+# pending_count — how many shipped files the target does not match yet.
+#
+# The lockfile is excluded on purpose. --freeze exists to rewrite it, and
+# adding a plugin necessarily makes the target's copy differ from ours the
+# moment lazy installs it — so counting it here made --freeze refuse to run in
+# exactly the situation it is for, and there was no way to add a plugin at all.
+# The optional argument names a file to ignore; --freeze passes the lockfile.
 pending_count() {
-  local rel n=0
+  local skip="${1:-}" rel n=0
   while IFS= read -r rel; do
     [ -n "$rel" ] || continue
+    [ -n "$skip" ] && [ "$rel" = "$skip" ] && continue
     [ "$(file_state "$rel")" = "same" ] || n=$((n + 1))
   done <<FILES
 $(source_files)
@@ -476,7 +484,8 @@ freeze() {
     fail "git is missing, so lazy.nvim cannot fetch anything to pin."
     return 1
   fi
-  if [ "$(pending_count)" -ne 0 ]; then
+  # The lockfile itself is not part of this check; see pending_count.
+  if [ "$(pending_count "$LOCKFILE")" -ne 0 ]; then
     fail "$TARGET_DIR does not match share/nvim yet."
     info "Run ./bin/nvim-land --apply first, so the lockfile pins what we ship."
     return 1

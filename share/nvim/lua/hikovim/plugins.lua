@@ -175,6 +175,10 @@ return {
   -----------------------------------------------------------------------
   -- NERDTree  ->  oil.nvim. A directory is a normal buffer: dd deletes,
   -- p pastes, :w applies. `-` opens the parent, as oil does everywhere.
+  --
+  -- oil is the editor of directories, and stays on <F5> and on every :e of a
+  -- directory. It shows one directory at a time by design, which is why the
+  -- IDE layout's explorer pane holds neo-tree instead — see below.
   -----------------------------------------------------------------------
   {
     'stevearc/oil.nvim',
@@ -183,6 +187,105 @@ return {
       default_file_explorer = true,
       view_options = { show_hidden = true },
       keymaps = { ['q'] = 'actions.close' },
+    },
+  },
+
+  -----------------------------------------------------------------------
+  -- NERDTree's other half  ->  neo-tree.nvim, the hierarchical list in the
+  -- IDE layout's bottom-right pane. oil cannot do this: it is a
+  -- single-directory buffer on purpose, so a whole-project tree needs a
+  -- second plugin rather than a setting.
+  --
+  -- The two do not overlap: neo-tree navigates, oil edits. Nothing here
+  -- hijacks netrw, because oil already has that job.
+  -----------------------------------------------------------------------
+  {
+    'nvim-neo-tree/neo-tree.nvim',
+    branch = 'v3.x',
+    cmd = 'Neotree',
+    dependencies = {
+      'nvim-lua/plenary.nvim',
+      'MunifTanjim/nui.nvim',
+      'nvim-tree/nvim-web-devicons',
+    },
+    opts = {
+      -- The layout owns the window, so neo-tree must render into the one it
+      -- is given rather than opening a sidebar of its own.
+      window = { position = 'current' },
+      -- Never take the session down: the layout decides what happens when the
+      -- last file closes, in ide.lua's editor_gone.
+      close_if_last_window = false,
+      popup_border_style = 'single',
+      enable_git_status = true,
+      enable_diagnostics = true,
+      -- A file opened from the tree must not land in the terminal pane or the
+      -- outline. ide.lua's enforce would move it out again, but naming the
+      -- types here means it never goes there in the first place.
+      open_files_do_not_replace_types = { 'terminal', 'aerial', 'qf', 'oil' },
+      filesystem = {
+        -- oil is the netrw replacement. Two plugins claiming it is how you
+        -- get a directory opening in whichever one loaded last.
+        hijack_netrw_behavior = 'disabled',
+        follow_current_file = { enabled = true, leave_dirs_open = true },
+        use_libuv_file_watcher = true,
+        filtered_items = { visible = true, hide_dotfiles = false, hide_gitignored = false },
+      },
+      default_component_configs = {
+        indent = { with_expanders = true },
+        git_status = { symbols = { added = '+', modified = '~', deleted = '✖', renamed = '➜' } },
+      },
+    },
+  },
+
+  -----------------------------------------------------------------------
+  -- The nested-Neovim problem  ->  flatten.nvim.
+  --
+  -- `nvim file` typed in the terminal pane, or a $EDITOR call from git in
+  -- there, would otherwise start a second Neovim *inside* the pane: a
+  -- separate process, so nothing in ide.lua can see it, let alone move the
+  -- file to the editor pane. flatten intercepts that launch and hands the
+  -- file to this instance instead.
+  --
+  -- priority puts it ahead of everything that reads the buffer list, because
+  -- it has to answer the guest before any of them see a buffer.
+  -----------------------------------------------------------------------
+  {
+    'willothy/flatten.nvim',
+    lazy = false,
+    priority = 1001,
+    opts = {
+      window = {
+        -- Put the file in the one window of this layout that shows file
+        -- contents, and fall back to the current window so flatten still
+        -- works with the layout off, where any window will do.
+        --
+        -- A function handler does the opening itself and returns
+        -- `bufnr, winnr` — buffer first. flatten's README documents that pair
+        -- the other way round, but core.lua destructures `bufnr, winnr`, and
+        -- returning a window id first makes flatten treat it as a buffer
+        -- number and throw from its BufEnter handler. The buffer is also what
+        -- it reads the filetype from to decide whether to block, so the order
+        -- is load-bearing rather than cosmetic.
+        open = function(o)
+          local target
+          local ok, ide = pcall(require, 'hikovim.ide')
+          if ok then target = ide.editor_win() end
+          if not (target and vim.api.nvim_win_is_valid(target)) then
+            target = vim.api.nvim_get_current_win()
+          end
+          -- Piped stdin first, then the last file named, matching what
+          -- flatten's own string handlers focus on.
+          local focus = o.stdin_buf or o.files[#o.files]
+          if not focus then return nil, nil end
+          vim.api.nvim_win_set_buf(target, focus.bufnr)
+          vim.api.nvim_set_current_win(target)
+          return focus.bufnr, target
+        end,
+      },
+      -- Defaults, spelled out because they are the reason `git commit` works:
+      -- the guest blocks until the buffer is closed, so git waits for the
+      -- message instead of committing an empty one.
+      block_for = { gitcommit = true, gitrebase = true },
     },
   },
 

@@ -213,8 +213,8 @@ Three layers, and the layering is the design:
    not viminfo, so `,sp` / `,lp` write `session.nvim` / `shada.nvim` instead of
    clobbering the pair vim wrote
 3. `lua/hikovim/` — lazy.nvim with treesitter, LSP, aerial, gitsigns, lualine,
-   oil, fzf-lua, and `ide.lua`, which arranges those plugins into a four-pane
-   layout rather than adding any
+   oil, neo-tree, flatten, fzf-lua, and `ide.lua`, which arranges those plugins
+   into a four-pane layout rather than adding any
 
 Rules that are easy to break:
 
@@ -224,12 +224,35 @@ Rules that are easy to break:
 - **Layer 3 must stay optional too.** `bootstrap_lazy` returns false rather
   than throwing when git is missing or the clone fails; a freshly landed box
   with no network still opens files.
-- **`ide.lua` owns no plugins.** It places aerial, oil and `:terminal` in
+- **`ide.lua` owns no plugins.** It places aerial, neo-tree and `:terminal` in
   windows it built itself, and every call into them is wrapped so that a
   missing plugin degrades to a notification rather than an error on every
   keystroke. It also keeps the layout out of the way of the starts where it
   would be wrong: a `$EDITOR` call from git, `nvim -d`, piped stdin, or a
   session that restored its own windows.
+- **oil and neo-tree split what NERDTree did, and neither replaces the other.**
+  oil is the directory *editor* — a directory is a buffer — and owns `<F5>`,
+  `:e <dir>` and netrw (`default_file_explorer = true`). neo-tree is the
+  *navigator* in the explorer pane, because oil shows one directory at a time by
+  design and cannot be a tree. So neo-tree must keep
+  `hijack_netrw_behavior = 'disabled'`: two plugins claiming netrw means a
+  directory opens in whichever loaded last.
+- **A nested Neovim is invisible to `ide.lua`.** `nvim file` in the terminal
+  pane is a separate process, so `enforce` cannot move its buffer anywhere.
+  flatten.nvim is what routes it to the editor pane, via `M.editor_win()`, and
+  its window handler returns **`bufnr, winnr` — buffer first**. flatten's README
+  documents that pair the other way round; returning a window id first makes
+  flatten treat it as a buffer number and throw from its `BufEnter` handler on
+  every open. There is a test for the order.
+- **Neovim has no `--remote-wait`.** The wait commands are Vim's; Neovim answers
+  `E5600`. The `nvimremote` shell line therefore uses plain `--remote` and does
+  not block, which is fine because a shell function is invisible to the `sh -c`
+  git runs `$EDITOR` through — so it can only affect a typed command. Blocking
+  for `gitcommit` is flatten's job, over RPC.
+- **`pending_count` must keep ignoring the lockfile for `--freeze`.** Rewriting
+  `lazy-lock.json` is what `--freeze` does, and installing a new plugin
+  necessarily makes the target's copy differ, so counting it made `--freeze`
+  refuse in exactly the case it exists for and no plugin could ever be added.
 - **`performance.rtp.reset = false` in the lazy setup is load-bearing.** lazy
   wipes the runtimepath by default, which would take `~/.vim` with it and lose
   `hiko_color`, DirDiff and filter.vim.

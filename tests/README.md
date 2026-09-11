@@ -20,11 +20,12 @@ adds them up and exits non-zero if anything failed.
 | `test-shell-target.sh` | which rc file a run writes to, and why: login-shell detection, `--shell`, the `--set-default-shell` interaction, the foreign-file report |
 | `test-uninstall.sh` | manifest path guard across both font directories |
 | `test-nvim-land.sh` | `report` / `--apply` / `--restore` |
+| `test-ide-remote.sh` | the nvim remote-open shell line, `--freeze`'s lockfile guard, and the tree that replaced oil in the explorer pane |
 | `test-iterm-tune.sh` | the settings tables and Nerd Font face names |
 | `test-install-loop.sh` | `install_all_tools` reaches every catalog entry even when a tool drains stdin |
 | `test-payload-pick.sh` | which file inside an archive gets installed, and whether a version query proves anything |
 
-Seven of these exist because of a way asset selection, a write, or a run goes
+Nine of these exist because of a way asset selection, a write, or a run goes
 wrong:
 
 - an `arm64` host was handed a `linux_arm` build, so `select_asset` matches a
@@ -62,6 +63,10 @@ wrong:
   prefers an executable now and `command_works` requires the version query to
   print something; `test-payload-pick.sh` covers both halves, because either
   one alone still lets a broken install through.
+- the nvim wrapper used `--remote-wait`, which Neovim does not implement at all
+  — it answers `E5600` — so the terminal pane got an error instead of a file
+- `pending_count` counted `lazy-lock.json`, so `--freeze` refused to run in the
+  one situation it exists for and no plugin could ever be added
 
 Each has an assertion here now. Keep them.
 
