@@ -237,6 +237,12 @@ Rules that are easy to break:
   design and cannot be a tree. So neo-tree must keep
   `hijack_netrw_behavior = 'disabled'`: two plugins claiming netrw means a
   directory opens in whichever loaded last.
+- **neo-tree binds only `<2-LeftMouse>`.** A single click in the explorer pane
+  therefore moved the cursor and did nothing else, which reads as a dead pane
+  rather than a default. `ide.lua` maps `<LeftRelease>` (guarded by
+  `CLICK_OPENS`) and delegates to whatever `<CR>` is bound to in that buffer,
+  rather than calling neo-tree's command modules — the click has already moved
+  the cursor by then, and delegating survives a rename behind its keymaps.
 - **A nested Neovim is invisible to `ide.lua`.** `nvim file` in the terminal
   pane is a separate process, so `enforce` cannot move its buffer anywhere.
   flatten.nvim is what routes it to the editor pane, via `M.editor_win()`, and

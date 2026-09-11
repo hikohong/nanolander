@@ -431,7 +431,7 @@ Everything else — `,sp`, `,lp`, `,ic`, `,f`, `,F`, `<space>`, `<backspace>`, `
 | `:IDETerm` / `:IDETerm!` | the terminal pane, or one more shell in it |
 | `:BufClose` / `:BufClose!` | close this tab, buffer and all — what `:q` runs |
 
-Only the editor pane ever shows file contents. `<CR>` in the tree expands a directory in place and opens a file up there; anything else that puts a file inside a panel — an fzf-lua pick, a quickfix jump, `gf` — is moved out of it. `:copen` lands inside the editor column rather than across the whole screen, which is the one shape the layout cannot absorb.
+Only the editor pane ever shows file contents. **One click** in the tree opens a file up there and expands a directory in place, as does `<CR>`; anything else that puts a file inside a panel — an fzf-lua pick, a quickfix jump, `gf` — is moved out of it. `:copen` lands inside the editor column rather than across the whole screen, which is the one shape the layout cannot absorb.
 
 **`nvim <file>` in the terminal pane opens it in the editor pane**, rather than starting a second Neovim nested inside the pane. That needs help from outside `ide.lua`, because a nested Neovim is a separate process that nothing in this configuration can see:
 
@@ -443,6 +443,8 @@ Only the editor pane ever shows file contents. `<CR>` in the tree expands a dire
 Inside a `:terminal` Neovim exports `$NVIM`, pointing at its own socket, which is what both mechanisms use. Outside one `$NVIM` is unset and `nvim` is an ordinary `nvim`.
 
 Both strips of tabs close the same way: the `✕` on a tab, or `:q` in the pane it belongs to. `:q` in the editor pane closes the file, `:q` in the terminal pane closes that shell, and `:qa`, `:wq`, `:x` and `:1,2q` are left to vim. Closing the last file quits, closing the last shell closes the terminal pane, and `<F6>` brings that pane back.
+
+neo-tree itself binds only the double click, which left one click moving the cursor and nothing else — indistinguishable from a pane that does not work. `CLICK_OPENS = false` at the top of `ide.lua` puts the double click back.
 
 The layout sets `mouse=a`, since `mouse=n` cannot click out of a terminal — terminal mode is not normal mode. Set `MOUSE = nil` at the top of `ide.lua` to keep whatever `~/.vimrc` chose, or `let g:hikovim_ide_auto = 0` to start with a plain single window and reach the layout with `<F4>`.
 

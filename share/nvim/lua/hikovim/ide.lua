@@ -79,6 +79,13 @@ local MOUSE = 'a'
 -- and reach the layout with <F4>.
 local AUTO_START = true
 
+-- One click on a file in the explorer pane opens it, the way it does in the
+-- editor this layout is shaped after. neo-tree binds only <2-LeftMouse>, so
+-- without this a single click moves the cursor and nothing else happens —
+-- which reads as the pane being dead rather than as a deliberate default.
+-- Set to false to need the double click.
+local CLICK_OPENS = true
+
 -- Which windows we built, so close/resize touch only ours. term_buf outlives
 -- the window: toggling the layout keeps the same shell and its history.
 local state = {
@@ -497,11 +504,25 @@ local function relocate_quickfix(buf)
   if not follow and alive(here) then vim.api.nvim_set_current_win(here) end
 end
 
--- The explorer pane needs no <CR> of its own any more. neo-tree expands and
--- collapses a directory in place, and for a file it asks for a window that is
--- none of open_files_do_not_replace_types — the terminal, the outline and oil
--- are all named there — which leaves the editor pane. enforce stays the
--- backstop for anything that still lands in a panel.
+-- The explorer pane needs no <CR> of its own. neo-tree expands and collapses a
+-- directory in place, and for a file it asks for a window that is none of
+-- open_files_do_not_replace_types — the terminal, the outline and oil are all
+-- named there — which leaves the editor pane. enforce stays the backstop for
+-- anything that still lands in a panel.
+--
+-- It does need a single click. neo-tree binds <2-LeftMouse> and nothing else,
+-- so one click only moved the cursor, which is indistinguishable from a pane
+-- that does not work.
+--
+-- tree_click delegates to whatever <CR> is bound to in that buffer rather than
+-- calling into neo-tree's own command modules. The click has already moved the
+-- cursor by the time <LeftRelease> is processed, so <CR>'s handler is looking
+-- at the line that was clicked, and this keeps working if neo-tree renames
+-- anything behind its keymaps.
+local function tree_click()
+  local m = vim.fn.maparg('<CR>', 'n', false, true)
+  if m and m.callback then pcall(m.callback) end
+end
 
 -- outline_select — the same rule for the top-right pane: aerial jumps in the
 -- editor window, never in whichever window it last saw the cursor in, which
@@ -832,6 +853,21 @@ function M.setup()
   if MOUSE then vim.o.mouse = MOUSE end
 
   local group = vim.api.nvim_create_augroup('hikovim_ide', { clear = true })
+
+  -- One click opens in the explorer pane. Buffer-local, so it applies to the
+  -- tree and to nothing else.
+  if CLICK_OPENS then
+    vim.api.nvim_create_autocmd('FileType', {
+      group = group,
+      pattern = 'neo-tree',
+      callback = function(ev)
+        vim.keymap.set('n', '<LeftRelease>', tree_click, {
+          buffer = ev.buf, silent = true, nowait = true,
+          desc = 'Open what was clicked — files go to the editor pane',
+        })
+      end,
+    })
+  end
 
   -- <CR> and double click in the outline obey the one-editor-window rule. The
   -- explorer pane needs no equivalent; see the note above outline_select.
