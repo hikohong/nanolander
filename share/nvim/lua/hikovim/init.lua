@@ -75,6 +75,12 @@ function M.setup()
       -- ~/.local/share is where nanolander keeps everything else it installs.
       install = { colorscheme = { 'habamax' } },
       checker = { enabled = false },
+      -- image.nvim's rockspec asks for the magick Lua rock, and lazy answers by
+      -- bootstrapping hererocks — a LuaRocks build that wants Python and a
+      -- compiler, on a box whose whole point is that it just lands. The plugin
+      -- is configured with processor = 'magick_cli', which shells out to the
+      -- ImageMagick nanolander installs, so the rock buys nothing here.
+      rocks = { enabled = false, hererocks = false },
     })
     setup_folding()
   end

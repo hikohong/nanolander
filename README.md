@@ -389,6 +389,21 @@ Each replacement disables its predecessor in Neovim only, by setting the plugin'
 
 `DirDiff.vim` and `filter.vim` have no replacement, so they keep loading.
 
+### Images in the editor pane
+
+Click a `.png` in the tree and the picture appears where the file contents would, the way yazi previews one. `image.nvim` does the drawing, using the ImageMagick nanolander already installs.
+
+The backend is the whole story. Every Neovim image plugin draws with the **Kitty graphics protocol** — snacks.nvim has no iTerm2 code path at all, and image.nvim's own default is kitty. iTerm2 does not speak it; it has its own inline-images protocol, which is why yazi can show an image in iTerm2 and these plugins cannot. What iTerm2 *does* speak is **sixel**, and sixel is image.nvim's third backend. Like the others it is an escape sequence, so it survives SSH.
+
+| Setting | Why |
+| --- | --- |
+| `backend = 'sixel'` | the one language iTerm2 and image.nvim both know. On a terminal that speaks the Kitty protocol — Ghostty, Kitty, WezTerm — `backend = 'kitty'` is the only line that changes, and it is faster |
+| `processor = 'magick_cli'` | shells out to `identify` and `convert`. The alternative wants a LuaRocks build of the `magick` rock |
+| `hijack_file_patterns` | what makes opening an image show the picture rather than the bytes |
+| `window_overlap_clear_enabled` | a sixel image is painted on the terminal, not owned by a buffer, so in a four-pane layout it has to be cleared when a window moves over it |
+
+Two things worth knowing. Sixel is the slow backend — image.nvim says so itself — so a large image takes a moment. And `lazy.nvim`'s LuaRocks support is turned off in `init.lua`: image.nvim's rockspec asks for the `magick` rock and lazy answers by bootstrapping hererocks, a build wanting Python and a compiler, on a box whose whole point is that it just lands. `magick_cli` needs none of it.
+
 ### Keys
 
 Muscle memory wins. Only the mappings whose vim plugin no longer exists are rebound, and they keep their original keys.
