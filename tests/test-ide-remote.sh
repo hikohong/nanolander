@@ -229,6 +229,15 @@ chk "splits are left alone"        "$(grep -c "open_cmd or 'edit') ~= 'edit'" "$
 chk "no layout hands back"         "$(grep -c 'if not alive(state.editor) then return nil end' "$IDE")" "1"
 # A buffer number has nothing to escape; a path handed to :edit does.
 chk "the path is not re-escaped"   "$(grep -c 'vim.fn.bufadd(args.path)' "$IDE")" "1"
+# Taking the open away from neo-tree took its buflisted with it, and the tab
+# for an image went with that: image.nvim sets buftype=nowrite during the very
+# BufWinEnter that displays the buffer, so show_in_editor's `buftype == ''`
+# rule — which is right for enforce, moving buffers nobody asked for — declines
+# to list it. A file asked for by name is listed here instead.
+chk "an opened file is listed" \
+  "$(grep -c '^ *vim\.bo\[buf\]\.buflisted = true$' "$IDE")" "1"
+chk "and enforce keeps its own rule" \
+  "$(grep -c "if vim.bo\[buf\].buftype == '' then vim.bo\[buf\].buflisted = true end" "$IDE")" "1"
 # enforce is still the backstop for every other route into a panel — fzf-lua, a
 # quickfix jump, gf, :bnext.
 chk "enforce is still there"       "$(grep -c 'function M.enforce' "$IDE")" "1"
