@@ -1,0 +1,409 @@
+#!/usr/bin/env bash
+#
+# vlc-default — make the Mac's VLC the default player for video files, the
+# optional companion to nanolander.
+#
+#   ./bin/vlc-default              show which app owns each video type
+#   ./bin/vlc-default --apply      back up LaunchServices, then point them at VLC
+#   ./bin/vlc-default --restore    restore the most recent backup
+#
+# Showing is the default on purpose: look first, decide, then apply.
+#
+# "The Mac's VLC" is the point. A Parallels virtual machine publishes its
+# Windows applications into ~/Applications (Parallels) as real .app bundles, so
+# a box with VLC installed inside Windows has two apps called VLC and the
+# Windows one can end up owning .mp4 — a double click then boots a virtual
+# machine. This script only ever writes org.videolan.vlc, which is the macOS
+# build's bundle identifier and nothing else's.
+#
+# Written for bash 3.2, the version macOS ships.
+
+set -uo pipefail
+
+readonly VLC_DEFAULT_VERSION="1.0.0"
+readonly VLC_BUNDLE_ID="org.videolan.vlc"
+readonly VLC_APP="/Applications/VLC.app"
+readonly PB="/usr/libexec/PlistBuddy"
+readonly BACKUP_DIR="$HOME/.nanolander-backups"
+readonly PLIST_NAME="com.apple.launchservices.secure.plist"
+
+PLIST="$HOME/Library/Preferences/com.apple.LaunchServices/$PLIST_NAME"
+
+# Filled by load_handlers; one "uti|handler" record per line.
+HANDLERS=""
+
+info() { printf '[INFO] %s\n' "$*"; }
+ok()   { printf '[ OK ] %s\n' "$*"; }
+warn() { printf '[WARN] %s\n' "$*"; }
+fail() { printf '[FAIL] %s\n' "$*"; }
+section() { printf '\n== %s ==\n' "$*"; }
+
+usage() {
+  cat <<USAGE
+vlc-default ${VLC_DEFAULT_VERSION} — VLC as the default video player (macOS only)
+
+USAGE:
+  ./bin/vlc-default              Show which app owns each video type.
+  ./bin/vlc-default --apply      Back up LaunchServices, then point them at VLC.
+  ./bin/vlc-default --restore    Restore the most recent backup.
+  ./bin/vlc-default --help       Show this help.
+
+WHAT IT CHANGES:
+  The default application for the video content types listed in the report,
+  covering .mp4 .m4v .mkv .avi .mov .qt .wmv .flv .f4v .webm .mpg .mpeg .m2v
+  .ts .m2ts .mts .vob .3gp .3g2 .asf .rm .rmvb .divx .ogv .ogm .mxf .dv
+
+  Audio, images and playlists are left alone, even though VLC will happily
+  open them. Nothing outside the list is touched.
+
+NOTES:
+  Writing needs duti, which is not part of a base macOS. --apply installs it
+  through Homebrew when it is missing and says so.
+
+  Backups live in ${BACKUP_DIR}. The file backed up
+  is the whole LaunchServices preference file, so --restore also undoes any
+  other default-application choice you made after the backup was taken.
+USAGE
+}
+
+# ---------------------------------------------------------------------------
+# What to change. One record per line: uti|role|handler|label
+#
+# Content types, not file extensions. Every extension in the list above maps
+# to one of these, so setting the type covers the extension — and covers the
+# ones a future VLC adds to the same type as well.
+# ---------------------------------------------------------------------------
+VIDEO_TYPES='public.mpeg-4|all|org.videolan.vlc|MPEG-4 (.mp4)
+com.apple.m4v-video|all|org.videolan.vlc|iTunes video (.m4v)
+org.matroska.mkv|all|org.videolan.vlc|Matroska (.mkv)
+public.avi|all|org.videolan.vlc|AVI (.avi)
+com.apple.quicktime-movie|all|org.videolan.vlc|QuickTime (.mov .qt)
+com.microsoft.windows-media-wmv|all|org.videolan.vlc|Windows Media (.wmv)
+com.microsoft.advanced-systems-format|all|org.videolan.vlc|ASF (.asf)
+com.adobe.flash.video|all|org.videolan.vlc|Flash video (.flv .f4v)
+org.webmproject.webm|all|org.videolan.vlc|WebM (.webm)
+public.mpeg|all|org.videolan.vlc|MPEG-1 (.mpg .mpeg)
+public.mpeg-2-video|all|org.videolan.vlc|MPEG-2 video (.m2v)
+public.mpeg-2-transport-stream|all|org.videolan.vlc|Transport stream (.ts)
+public.avchd-mpeg-2-transport-stream|all|org.videolan.vlc|AVCHD (.m2ts .mts)
+org.videolan.vob|all|org.videolan.vlc|DVD video object (.vob)
+public.3gpp|all|org.videolan.vlc|3GPP (.3gp)
+public.3gpp2|all|org.videolan.vlc|3GPP2 (.3g2)
+com.real.realmedia|all|org.videolan.vlc|RealMedia (.rm)
+com.real.realmedia-vbr|all|org.videolan.vlc|RealMedia VBR (.rmvb)
+org.videolan.divx|all|org.videolan.vlc|DivX (.divx)
+org.xiph.ogg-video|all|org.videolan.vlc|Ogg video (.ogv .ogm)
+org.smpte.mxf|all|org.videolan.vlc|MXF (.mxf)
+public.dv-movie|all|org.videolan.vlc|DV (.dv)
+public.movie|all|org.videolan.vlc|Any movie (generic)
+public.video|all|org.videolan.vlc|Any video (generic)'
+
+require_macos() {
+  if [ "$(uname -s)" != "Darwin" ]; then
+    fail "vlc-default only runs on macOS; this is $(uname -s)."
+    return 1
+  fi
+  if [ ! -x "$PB" ]; then
+    fail "PlistBuddy not found at $PB."
+    return 1
+  fi
+  return 0
+}
+
+bundle_id_of() {
+  "$PB" -c "Print :CFBundleIdentifier" "$1/Contents/Info.plist" 2>/dev/null
+}
+
+# ---------------------------------------------------------------------------
+# Reading the current state.
+#
+# The whole file is parsed once. Asking PlistBuddy for one array element at a
+# time is a process per element per lookup, which on a machine with a hundred
+# registered handlers is thousands of them.
+#
+# LSHandlers is an array of dictionaries, and each dictionary carries a nested
+# LSHandlerPreferredVersions dictionary that has an LSHandlerRoleAll key of its
+# own. Brace depth is what tells the two apart: the array is depth 1, a handler
+# is depth 2, the nested dictionary is depth 3.
+# ---------------------------------------------------------------------------
+# parse_handler_dump — the awk half, reading a PlistBuddy dump on stdin. Split
+# out from the PlistBuddy call so the parser can be tested on a fixture, on any
+# platform: PlistBuddy is macOS only and the depth rule above is the part that
+# breaks.
+parse_handler_dump() {
+  awk '
+    /\{[[:space:]]*$/ { d++; if (d == 2) { ct = ""; role = "" }; next }
+    /^[[:space:]]*\}[[:space:]]*$/ {
+      if (d == 2 && ct != "" && role != "") print ct "|" role
+      d--
+      next
+    }
+    d == 2 {
+      if ($1 == "LSHandlerContentType") ct = $3
+      else if ($1 == "LSHandlerRoleAll") role = $3
+    }
+  '
+}
+
+parse_handlers() {
+  "$PB" -c "Print :LSHandlers" "$PLIST" 2>/dev/null | parse_handler_dump
+}
+
+load_handlers() {
+  HANDLERS=$(parse_handlers)
+}
+
+# handler_for <uti> — the bundle id that owns this type, empty when no choice
+# has been recorded and the system default applies.
+handler_for() {
+  printf '%s\n' "$HANDLERS" | awk -F'|' -v want="$1" '$1 == want { print $2; exit }'
+}
+
+show_value() {
+  local current="$1" desired="$2" label="$3"
+  local mark
+  [ -z "$current" ] && current="(system default)"
+  if [ "$current" = "$desired" ]; then
+    mark="ok"
+  else
+    mark="->"
+  fi
+  printf '  [%s] %-38s current: %-28s target: %s\n' "$mark" "$label" "$current" "$desired"
+}
+
+# pending_count — how many types are not pointing at VLC yet.
+pending_count() {
+  local uti role handler label n=0
+  while IFS='|' read -r uti role handler label; do
+    [ -n "$uti" ] || continue
+    [ "$(handler_for "$uti")" = "$handler" ] || n=$((n + 1))
+  done <<TYPES
+$VIDEO_TYPES
+TYPES
+  printf '%s' "$n"
+}
+
+# ---------------------------------------------------------------------------
+# Which VLC. Reported, never chosen for you: a second VLC is the user's
+# software and removing it is not this script's business.
+# ---------------------------------------------------------------------------
+report_vlc_apps() {
+  local app id found=0
+
+  if [ -d "$VLC_APP" ]; then
+    id=$(bundle_id_of "$VLC_APP")
+    if [ "$id" = "$VLC_BUNDLE_ID" ]; then
+      ok "Mac VLC: $VLC_APP ($id)"
+      found=1
+    else
+      warn "$VLC_APP reports bundle id \"$id\", not $VLC_BUNDLE_ID."
+    fi
+  else
+    fail "No VLC at $VLC_APP."
+    info "Install it first: brew install --cask vlc"
+  fi
+
+  # Any other bundle calling itself VLC. A Parallels-published Windows VLC is
+  # the one that turns up in practice, and it is a real .app as far as
+  # LaunchServices is concerned. Read line by line rather than word by word:
+  # that bundle's path is "~/Applications (Parallels)/{guid} Applications
+  # .localized/VLC media player.app", which has spaces in three places.
+  while IFS= read -r app <&3; do
+    [ -n "$app" ] || continue
+    [ "$app" = "$VLC_APP" ] && continue
+    id=$(bundle_id_of "$app")
+    warn "Another VLC is registered: $app"
+    info "  bundle id $id — not written by this script."
+    info "  Note that \"duti -x mp4\" resolves by application name and may name"
+    info "  this one even when the binding is correct. Trust the report above."
+  done 3< <(find "$HOME/Applications" "$HOME/Applications (Parallels)" \
+                 /Applications -maxdepth 4 -name '*VLC*.app' -prune 2>/dev/null)
+
+  [ "$found" = 1 ]
+}
+
+report() {
+  local uti role handler label current
+
+  section "LaunchServices"
+  if [ -f "$PLIST" ]; then
+    info "File: $PLIST"
+  else
+    info "No preference file yet at $PLIST; every type is on its system default."
+  fi
+
+  section "VLC"
+  report_vlc_apps || true
+
+  section "Video types"
+  while IFS='|' read -r uti role handler label; do
+    [ -n "$uti" ] || continue
+    current=$(handler_for "$uti")
+    show_value "$current" "$handler" "$label"
+  done <<TYPES
+$VIDEO_TYPES
+TYPES
+}
+
+# ---------------------------------------------------------------------------
+# Writing.
+# ---------------------------------------------------------------------------
+have_duti() { command -v duti >/dev/null 2>&1; }
+
+ensure_duti() {
+  if have_duti; then
+    ok "duti is installed ($(command -v duti))"
+    return 0
+  fi
+  if ! command -v brew >/dev/null 2>&1; then
+    fail "duti is needed to set a default application, and Homebrew is not"
+    info "installed either. Run bin/nanolander first, or install duti by hand."
+    return 1
+  fi
+  info "duti is not installed; installing it through Homebrew."
+  if brew install duti; then
+    have_duti || { fail "Homebrew reported success but duti is not on PATH."; return 1; }
+    ok "duti installed"
+    return 0
+  fi
+  fail "Could not install duti."
+  return 1
+}
+
+backup_plist() {
+  local stamp dest
+  mkdir -p "$BACKUP_DIR" || return 1
+  if [ ! -f "$PLIST" ]; then
+    info "Nothing to back up: no preference file yet."
+    return 0
+  fi
+  stamp=$(date +%Y%m%d-%H%M%S)
+  dest="$BACKUP_DIR/$PLIST_NAME.$stamp"
+  # Never reuse a name. An apply and a restore inside the same second used to
+  # produce one filename, and the restore then read back what it had just
+  # overwritten.
+  if [ -e "$dest" ]; then
+    local n=1
+    while [ -e "$dest.$n" ]; do n=$((n + 1)); done
+    dest="$dest.$n"
+  fi
+  if cp "$PLIST" "$dest"; then
+    ok "Backed up to $dest"
+    return 0
+  fi
+  fail "Backup failed; not touching LaunchServices."
+  return 1
+}
+
+apply() {
+  local uti role handler label failed=0
+
+  if ! report_vlc_apps; then
+    fail "Refusing to write: the Mac VLC is not where it should be."
+    return 1
+  fi
+  ensure_duti || return 1
+  backup_plist || return 1
+
+  section "Applying"
+  while IFS='|' read -r uti role handler label; do
+    [ -n "$uti" ] || continue
+    duti -s "$handler" "$uti" "$role" >/dev/null 2>&1
+  done <<TYPES
+$VIDEO_TYPES
+TYPES
+
+  # duti exits 0 whether or not the binding took, so the preference file is
+  # the only thing worth believing. Same rule as command_works in nanolander:
+  # the write counts when the system says so, not when the writer does.
+  load_handlers
+  while IFS='|' read -r uti role handler label; do
+    [ -n "$uti" ] || continue
+    if [ "$(handler_for "$uti")" = "$handler" ]; then
+      ok "$label"
+    else
+      fail "$label — still $(handler_for "$uti" | sed 's/^$/unset/')"
+      failed=$((failed + 1))
+    fi
+  done <<TYPES
+$VIDEO_TYPES
+TYPES
+
+  section "Done"
+  if [ "$failed" -gt 0 ]; then
+    fail "$failed of the video types did not take."
+    return 1
+  fi
+  ok "VLC now opens every video type in the list."
+  info "Finder may still draw the old icons; killall Finder refreshes them."
+  info "Undo with: ./bin/vlc-default --restore"
+  return 0
+}
+
+restore() {
+  local latest="" candidate
+  if [ ! -d "$BACKUP_DIR" ]; then
+    fail "No backup directory at $BACKUP_DIR"
+    return 1
+  fi
+  # Backups are named with a sortable timestamp, so the last glob match is the
+  # most recent one. Avoids parsing ls output.
+  for candidate in "$BACKUP_DIR/$PLIST_NAME."*; do
+    [ -f "$candidate" ] && latest="$candidate"
+  done
+  if [ -z "$latest" ]; then
+    fail "No backup found in $BACKUP_DIR"
+    return 1
+  fi
+  mkdir -p "$(dirname "$PLIST")" || return 1
+  if cp "$latest" "$PLIST"; then
+    # cfprefsd caches the file; without this the next read serves stale values.
+    killall cfprefsd >/dev/null 2>&1
+    ok "Restored $latest"
+    warn "That file holds every default-application choice, not just video."
+    return 0
+  fi
+  fail "Restore failed."
+  return 1
+}
+
+main() {
+  local action="report"
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -h|--help) usage; exit 0 ;;
+      --version) printf 'vlc-default %s\n' "$VLC_DEFAULT_VERSION"; exit 0 ;;
+      --apply)   action="apply" ;;
+      --restore) action="restore" ;;
+      *)
+        fail "Unknown option: $1"
+        printf 'Try ./bin/vlc-default --help\n'
+        exit 64 ;;
+    esac
+    shift
+  done
+
+  require_macos || exit 1
+  load_handlers
+
+  case "$action" in
+    report)
+      report
+      section "Nothing was changed"
+      if [ "$(pending_count)" -eq 0 ]; then
+        ok "Every video type already opens in VLC."
+      else
+        info "Run ./bin/vlc-default --apply to point the targets above at VLC."
+      fi
+      ;;
+    apply)   apply || exit 1 ;;
+    restore) restore || exit 1 ;;
+  esac
+  exit 0
+}
+
+# Sourcing with VLC_DEFAULT_LIB=1 loads the functions without running anything.
+if [ "${VLC_DEFAULT_LIB:-0}" != "1" ]; then
+  main "$@"
+fi

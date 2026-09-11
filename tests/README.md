@@ -23,6 +23,7 @@ adds them up and exits non-zero if anything failed.
 | `test-video-preview.sh` | what opening a video shows: ffprobe formatting, the nowrite guard, graceful degradation |
 | `test-ide-remote.sh` | the nvim remote-open shell line, `--freeze`'s lockfile guard, and the tree that replaced oil in the explorer pane |
 | `test-iterm-tune.sh` | the settings tables and Nerd Font face names |
+| `test-vlc-default.sh` | the content-type table, and the LaunchServices parser against a recorded dump |
 | `test-install-loop.sh` | `install_all_tools` reaches every catalog entry even when a tool drains stdin |
 | `test-payload-pick.sh` | which file inside an archive gets installed, and whether a version query proves anything |
 
@@ -130,13 +131,20 @@ Each has an assertion here now. Keep them.
 - **Fast.** The whole set is about ten seconds. Keep it that way: a suite that
   takes minutes stops being run.
 
-`NANOLANDER_LIB=1`, `ITERM_TUNE_LIB=1` and `NVIM_LAND_LIB=1` source the
-scripts without running them; that is how the internals are reachable.
+`NANOLANDER_LIB=1`, `ITERM_TUNE_LIB=1`, `NVIM_LAND_LIB=1` and
+`VLC_DEFAULT_LIB=1` source the scripts without running them; that is how the
+internals are reachable.
 
 ## What is not covered, and cannot be here
 
 - **macOS**: Homebrew, `ensure_brew_tool`, and all of `iterm-tune`'s
   PlistBuddy writing. Only its data tables are tested.
+- **LaunchServices**: `vlc-default`'s writing needs `duti` and a real
+  LaunchServices to write into, and reading a real preference file needs
+  PlistBuddy. The parser is split from the PlistBuddy call so the awk half can
+  be fed a recorded dump on any platform — the brace-depth rule is the part
+  that breaks, since each handler carries a nested dictionary with an
+  `LSHandlerRoleAll` of its own that is always `-`.
 - **Amazon Linux 2 and 2023**: yum and dnf.
 - **The live GitHub API**: asset names and archive layouts are asserted
   against fixtures shaped like the real ones, not against the real releases.
