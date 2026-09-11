@@ -237,6 +237,16 @@ Rules that are easy to break:
   design and cannot be a tree. So neo-tree must keep
   `hijack_netrw_behavior = 'disabled'`: two plugins claiming netrw means a
   directory opens in whichever loaded last.
+- **`startinsert` is spent on whichever window is current when the main loop
+  resumes**, not where it is called. The terminal pane's `term://*` autocmd
+  fired it while `M.open` was still building, so the flag landed on the *editor*
+  pane and a fresh Neovim came up in insert mode — where every panel mapping,
+  all normal-mode, answers nothing. It defers and re-checks `buftype` now.
+- **The panes fill asynchronously, so focus cannot be set once and assumed.**
+  neo-tree focuses its own window when its scan lands, after `M.open` has
+  returned, which undid a single `vim.schedule`. `settle_focus` re-checks a few
+  times across ~200ms and stops early; it is bounded so it cannot fight someone
+  who clicks into a panel on purpose.
 - **neo-tree binds only `<2-LeftMouse>`.** A single click in the explorer pane
   therefore moved the cursor and did nothing else, which reads as a dead pane
   rather than a default. `ide.lua` maps `<LeftRelease>` (guarded by

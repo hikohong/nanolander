@@ -446,6 +446,8 @@ Both strips of tabs close the same way: the `✕` on a tab, or `:q` in the pane 
 
 neo-tree itself binds only the double click, which left one click moving the cursor and nothing else — indistinguishable from a pane that does not work. `CLICK_OPENS = false` at the top of `ide.lua` puts the double click back.
 
+**A fresh Neovim comes up in the editor pane, in normal mode.** Both halves of that had to be made to happen. `startinsert` sets a flag that is spent when control returns to the main loop rather than where it is called, so firing it while the layout still had the terminal pane focused put the *editor* pane into insert mode — and since every mapping in the panels is normal-mode, the whole right column then answered nothing until `Esc`. The panes also fill asynchronously, and neo-tree focuses its own window when its scan lands, which is after the layout has finished building. So the terminal's `startinsert` is deferred and re-checks what it is looking at, and focus is settled by re-checking briefly rather than being set once and assumed.
+
 The layout sets `mouse=a`, since `mouse=n` cannot click out of a terminal — terminal mode is not normal mode. Set `MOUSE = nil` at the top of `ide.lua` to keep whatever `~/.vimrc` chose, or `let g:hikovim_ide_auto = 0` to start with a plain single window and reach the layout with `<F4>`.
 
 ### Things worth knowing

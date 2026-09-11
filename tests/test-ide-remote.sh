@@ -125,6 +125,20 @@ chk "the explorer pane is the tree"  "$(grep -c "state.explorer then return 'neo
 chk "one click opens in the tree"    "$(grep -c "'<LeftRelease>', tree_click" "$IDE")" "1"
 chk "and it is switchable"           "$(grep -c 'local CLICK_OPENS' "$IDE")" "1"
 chk "the click delegates to <CR>"    "$(grep -c "maparg('<CR>', 'n', false, true)" "$IDE")" "1"
+
+# startinsert sets a flag that is spent when control returns to the main loop,
+# not where it is called. Firing it while open() still had the terminal pane
+# focused therefore put the *editor* pane into insert mode, and every mapping in
+# the panels is normal-mode — so the whole right column answered nothing until
+# Esc. The autocmd has to defer and then re-check what it is looking at.
+chk "startinsert is called once"     "$(grep -c "vim.cmd('startinsert')" "$IDE")" "1"
+chk "and only behind a buftype check" \
+  "$(grep -A1 "buftype == 'terminal' then" "$IDE" | grep -c "vim.cmd('startinsert')")" "1"
+# The panes fill asynchronously and neo-tree focuses itself when its scan
+# lands, after open() has returned, so one scheduled fix-up runs too early.
+chk "focus is settled, not assumed"  "$(grep -c 'local function settle_focus' "$IDE")" "1"
+chk "the settle is bounded"          "$(grep -c 'tries < 4' "$IDE")" "1"
+chk "and leaves normal mode set"     "$(grep -c "vim.cmd('stopinsert')" "$IDE")" "1"
 chk "the tree pane is recognised"    "$(grep -c "kind == 'neo-tree'" "$IDE")" "2"
 chk "flatten can find the editor"    "$(grep -c 'function M.editor_win' "$IDE")" "1"
 chk "neo-tree is installed"          "$(grep -c 'nvim-neo-tree/neo-tree.nvim' "$PLUGINS")" "1"

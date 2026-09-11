@@ -538,6 +538,38 @@ local function outline_select()
   end
 end
 
+-- settle_focus — leave the cursor in the editor pane, in normal mode, and keep
+-- checking for a moment.
+--
+-- The panes fill themselves asynchronously: neo-tree scans the directory and
+-- focuses its own window when the scan lands, which is after open() has already
+-- returned, so a single vim.schedule runs too early and is then undone. This
+-- re-checks a few times across a fifth of a second and stops as soon as it
+-- finds what it wants.
+--
+-- A fresh Neovim has to come up in the editor pane in normal mode. Every
+-- mapping in the panels is normal-mode, so insert mode there makes the whole
+-- right column look like it does nothing.
+--
+-- Bounded on purpose: it gives up rather than fighting anyone who deliberately
+-- clicks into a panel while the layout is still settling.
+local function settle_focus()
+  local tries = 0
+  local function once()
+    tries = tries + 1
+    if not (alive(state.editor) and M.is_open()) then return end
+    if vim.api.nvim_get_current_win() ~= state.editor then
+      vim.api.nvim_set_current_win(state.editor)
+    end
+    if vim.fn.mode() ~= 'n' then vim.cmd('stopinsert') end
+    local settled = vim.api.nvim_get_current_win() == state.editor
+      and vim.fn.mode() == 'n'
+    if not settled and tries < 4 then vim.defer_fn(once, 60) end
+  end
+  vim.schedule(once)
+  vim.defer_fn(once, 60)
+end
+
 -- open — build the layout. Every other window is closed first: the point of
 -- an IDE layout is that the four panes are always in the same place, which a
 -- leftover split from earlier would break. Buffers are untouched, so nothing
@@ -596,6 +628,8 @@ function M.open()
 
   M.resize()
   vim.api.nvim_set_current_win(state.editor)
+
+  settle_focus()
 end
 
 function M.close()
@@ -929,12 +963,26 @@ function M.setup()
     end,
   })
 
-  -- Terminal mode on entry, so the bottom-left pane behaves like the shell
-  -- it is rather than a buffer you have to press i in.
+  -- Terminal mode on entry, so the bottom-left pane behaves like the shell it
+  -- is rather than a buffer you have to press i in.
+  --
+  -- Deferred, and then checked again, because startinsert does not take effect
+  -- where it is called: it sets a flag, and insert mode begins when control
+  -- returns to the main loop. Building the layout focuses the terminal pane to
+  -- start its shell and then moves on to the editor pane, so the flag set here
+  -- was being spent on the editor — a fresh Neovim came up in insert mode with
+  -- the cursor in the file. That also made the explorer pane look dead: its
+  -- click mapping is normal-mode, so nothing answered a click until Esc.
   vim.api.nvim_create_autocmd({ 'BufEnter', 'WinEnter' }, {
     group = group,
     pattern = 'term://*',
-    callback = function() vim.cmd('startinsert') end,
+    callback = function()
+      vim.schedule(function()
+        if vim.bo[vim.api.nvim_get_current_buf()].buftype == 'terminal' then
+          vim.cmd('startinsert')
+        end
+      end)
+    end,
   })
 
   if not AUTO_START then return end
