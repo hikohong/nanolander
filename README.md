@@ -406,6 +406,24 @@ The backend is the whole story. Every Neovim image plugin draws with the **Kitty
 | `hijack_file_patterns` | what makes opening an image show the picture rather than the bytes |
 | `window_overlap_clear_enabled` | a sixel image is painted on the terminal, not owned by a buffer, so in a four-pane layout it has to be cleared when a window moves over it |
 
+### Videos
+
+Opening a video in a text editor is normally a mistake: Neovim reads megabytes of binary, guesses an encoding, and fills the window with rubbish. Instead you get what yazi shows for the same file — a frame out of the middle, and the numbers worth knowing:
+
+```
+  photo-shoot.mp4
+  1920×1080 · h264 · 29.97 fps
+  00:02:14 · 12.4 MB · 1.8 Mbps
+
+  ┌ the frame, drawn by image.nvim ┐
+```
+
+`lua/hikovim/video.lua` does it, from `ffprobe` for the numbers and `ffmpeg` for the frame — both already in the catalog, so this costs no new dependency. The frame is taken a tenth of the way in, because most files open on a black one. Both commands run asynchronously, so a large file does not block the editor, and a missing one costs that half of the preview rather than the whole thing.
+
+The buffer is `nowrite`, so `:w` can never put this text where the video was. It is still an ordinary listed tab that `:q` closes.
+
+**It plays nothing, deliberately.** Playback in a buffer is not a missing feature, it is the wrong place for it: one 960×540 frame is 625 KB of sixel, so 24 fps means 14 MB/s of escape sequences for the terminal to parse — and a sixel image is painted on the terminal rather than owned by a buffer, so every statusline tick would tear through it. To watch a file, hand it to something that watches files: `open` on macOS, or `mpv --vo=tct` over SSH.
+
 Two things worth knowing. Sixel is the slow backend — image.nvim says so itself — so a large image takes a moment. And `lazy.nvim`'s LuaRocks support is turned off in `init.lua`: image.nvim's rockspec asks for the `magick` rock and lazy answers by bootstrapping hererocks, a build wanting Python and a compiler, on a box whose whole point is that it just lands. `magick_cli` needs none of it.
 
 ### Keys
@@ -808,7 +826,7 @@ nanolander/
 ├── share/
 │   └── nvim/           the Neovim configuration bin/nvim-land installs
 │       ├── init.vim
-│       ├── lua/hikovim/{init,plugins,lsp,keys}.lua
+│       ├── lua/hikovim/{init,plugins,lsp,keys,ide,video}.lua
 │       └── lazy-lock.json   the pinned plugin set, written by --freeze
 ├── tests/              the suites, plus run.sh to run them all
 ├── docs/
