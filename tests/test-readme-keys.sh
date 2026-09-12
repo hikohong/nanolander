@@ -20,6 +20,7 @@ README="$REPO_ROOT/README.md"
 KEYS="$REPO_ROOT/share/nvim/lua/hikovim/keys.lua"
 IDE="$REPO_ROOT/share/nvim/lua/hikovim/ide.lua"
 PLUGINS="$REPO_ROOT/share/nvim/lua/hikovim/plugins.lua"
+PICTURE="$REPO_ROOT/share/nvim/lua/hikovim/picture.lua"
 
 # The reference itself, and its sub-headings. A refactor that drops a pane's
 # table takes every key in it with it, and each assertion below would still
@@ -43,7 +44,7 @@ done
 lhs_list() {
   {
     grep -ohE "map(_nxo)?\('[^']+'" "$KEYS"
-    grep -ohE "keymap\.set\((\{[^}]*\}|'[a-z]'), '[^']+'" "$IDE"
+    grep -ohE "keymap\.set\((\{[^}]*\}|'[a-z]'), '[^']+'" "$IDE" "$PICTURE"
     # plugins.lua defines mappings three more ways, and every one of them was
     # missed the first time this suite was written — dial's <C-a> passed
     # undocumented because only the two modules above were read.

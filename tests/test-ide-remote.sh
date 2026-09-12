@@ -181,8 +181,9 @@ chk "not the kitty default" \
 # magick_cli shells out to the ImageMagick nanolander installs; the other
 # processor wants a LuaRocks build of the magick rock.
 chk "no luarock is needed"        "$(grep -c "processor = 'magick_cli'" "$PLUGINS")" "1"
-# Opening one of these has to show the picture rather than the bytes.
-chk "image files are hijacked"    "$(grep -c 'hijack_file_patterns' "$PLUGINS")" "1"
+# Opening a picture has to show the picture rather than the bytes — through
+# picture.lua's BufReadCmd now, so image.nvim must not also take the read.
+chk "image.nvim does not hijack"  "$(grep -c 'hijack_file_patterns = {},' "$PLUGINS")" "1"
 # A sixel image is painted on the terminal, not owned by a buffer, so in a
 # four-pane layout it has to be cleared when a window moves over it.
 chk "overlap is cleared"          "$(grep -c 'window_overlap_clear_enabled = true' "$PLUGINS")" "1"

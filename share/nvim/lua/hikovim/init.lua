@@ -88,6 +88,7 @@ function M.setup()
   require('hikovim.lsp').setup()
   require('hikovim.keys').setup()
   require('hikovim.video').setup()
+  require('hikovim.picture').setup()
   require('hikovim.ide').setup()
 end
 

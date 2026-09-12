@@ -398,7 +398,36 @@ Four entries replace nothing, because vim here never had them: `nvim-treesitter`
 
 ### Images in the editor pane
 
-Click a `.png` in the tree and the picture appears where the file contents would, the way yazi previews one. `image.nvim` does the drawing, using the ImageMagick nanolander already installs.
+Click a picture in the tree and it appears where the file contents would, the way yazi previews one, with the numbers above it:
+
+```
+  holiday.heic
+  HEIC · 4032×3024 · 2.1 MB
+
+  ┌──────────────────────────┐
+  │  the picture             │
+  └──────────────────────────┘
+```
+
+`image.nvim` does the drawing; `lua/hikovim/picture.lua` decides what it draws.
+
+**What opens as a picture.** The everyday ones — `png` `jpg` `jpeg` `gif` `webp` `avif` `bmp` `apng` — plus what a phone takes (`heic` `heif`), design and graphics formats (`tif` `tiff` `svg` `ico` `icns` `psd` `tga` `qoi` `dds` `hdr` `pcx` `xpm` `pbm` `pgm` `ppm` `pnm` `jxl`), and camera raw (`dng` `cr2` `cr3` `nef` `arw` `raf` `orf` `rw2` `pef` `srw`). ImageMagick decodes them; when it cannot, `sips` does on macOS and `ffmpeg` after that, and the result goes back through ImageMagick. A file none of the three can read says so rather than showing its bytes.
+
+**Animated and multi-page files show their first frame, and say how many there are.** `gx` hands the file to the system viewer, which plays it. Animating in the buffer is out for the same reason video playback is — see [Videos](#videos).
+
+**Every picture is drawn from one normalised copy**, not from the original. Handing originals straight to sixel was measured over a corpus of real files, and it is why some pictures used to show nothing:
+
+| The file | Handed straight to sixel | The flag that fixes it |
+| --- | --- | --- |
+| a PNG with transparency | 949 bytes — sixel has no alpha, so it drew nearly blank | `-alpha remove`, onto the editor's own background |
+| an animated PNG named `.png` | 535 bytes, nearly blank | `[0]`, the first frame |
+| an animated GIF | every frame encoded and stacked into one image | `[0]` |
+| an animated WebP | dimensions read as `8960×0`, so nothing was drawn | `[0]` |
+| a multi-page TIFF | format read as `tifftifftiff` | `[0]` |
+| a 7000×5000 PNG | 1.2 s to encode, on every redraw | `-resize 1600x1600>` — shrink only |
+| a phone photo | drawn on its side | `-auto-orient` |
+
+The copy is cached under `~/.cache/nvim/nanolander/pictures`, keyed by the file's path, modification time and size, so a second look is immediate and an edited file is converted again. Delete the directory whenever you like.
 
 The backend is the whole story. Every Neovim image plugin draws with the **Kitty graphics protocol** — snacks.nvim has no iTerm2 code path at all, and image.nvim's own default is kitty. iTerm2 does not speak it; it has its own inline-images protocol, which is why yazi can show an image in iTerm2 and these plugins cannot. What iTerm2 *does* speak is **sixel**, and sixel is image.nvim's third backend. Like the others it is an escape sequence, so it survives SSH.
 
@@ -406,7 +435,7 @@ The backend is the whole story. Every Neovim image plugin draws with the **Kitty
 | --- | --- |
 | `backend = 'sixel'` | the one language iTerm2 and image.nvim both know. On a terminal that speaks the Kitty protocol — Ghostty, Kitty, WezTerm — `backend = 'kitty'` is the only line that changes, and it is faster |
 | `processor = 'magick_cli'` | shells out to `identify` and `convert`. The alternative wants a LuaRocks build of the `magick` rock |
-| `hijack_file_patterns` | what makes opening an image show the picture rather than the bytes. The list comes from `lua/hikovim/media.lua`, which the tree also reads — see [Videos](#videos) |
+| `hijack_file_patterns = {}` | empty on purpose. image.nvim used to take pictures itself, straight from the original file; `picture.lua`'s `BufReadCmd` takes them now and draws the normalised copy through image.nvim's API. Two readers for one buffer would race |
 | `window_overlap_clear_enabled` | a sixel image is painted on the terminal, not owned by a buffer, so in a four-pane layout it has to be cleared when a window moves over it |
 
 **The picture appears in the editor pane and nowhere else.** That took a change to how the tree opens a file. neo-tree sits in the explorer pane at position `current` — which is what makes it render into a window the layout built rather than opening a sidebar of its own — and its own open reads that literally: for `current` it skips the window search altogether and opens the file in the window it is already in. So every file opened from the tree appeared in the explorer pane first, and the layout moved it to the editor a turn of the loop later. Invisible for text. Not for an image: image.nvim hijacks on `BufWinEnter`, so it bound a picture to the *explorer* window and began drawing there, and by the time it finished the buffer had gone — its renderer bails out of a window that no longer shows the buffer without clearing what it already painted, and a sixel is painted on the terminal rather than owned by a buffer. The image stayed on the tree, in both panes at once, and only sometimes, since which of the two won the race decided it. neo-tree announces the open first, so the layout answers that and puts the file in the editor pane itself; `S`, `s` and `t` still split and open tabs, and with the layout off neo-tree's own logic is still in charge.
@@ -542,6 +571,7 @@ Those bracket motions are `mini.bracketed`'s, and four of its targets are switch
 | `:BufClose` / `:BufClose!` | close this tab, buffer and all — what `:q` runs |
 | `<C-w>` then `hjkl` | move between the panes; they are ordinary windows |
 | `<C-w>` in a terminal | leaves terminal mode first, so the same window commands work from the shell pane |
+| `gx` in a picture | hand this file to the system viewer — an animated one plays there |
 
 `:q` closes the tab rather than the window: in the editor pane that is the file, in the terminal pane that shell. `:qa`, `:wq`, `:x`, `:q file` and `:1,2q` are left to vim. Closing the last file quits, closing the last shell closes the terminal pane, and `<F6>` brings it back.
 
@@ -739,6 +769,7 @@ The layout sets `mouse=a`, since `mouse=n` cannot click out of a terminal — te
 - **Neovim has no `--remote-wait`.** The wait commands are Vim's; Neovim answers `E5600: Wait commands not yet implemented in Nvim`. So the shell function uses plain `--remote` and does not block. It does not need to: a shell function is invisible to the `sh -c` that git runs `$EDITOR` through, so it can only ever affect a command you type. Blocking is flatten.nvim's job, over RPC.
 - **flatten's window handler returns `bufnr, winnr`** — buffer first. Its README documents the pair the other way round, and returning a window id first makes flatten treat it as a buffer number and throw from its `BufEnter` handler on every open. `plugins.lua` says so where it matters.
 - **`,sp` and `,lp` write `session.nvim` and `shada.nvim`**, not `session.vim` and `viminfo.vim`. Neovim's info file is msgpack shada and vim's is text, so sharing one pair would leave whichever editor wrote last unreadable to the other.
+- **A preview that works once and then shows bytes is a deleted autocmd.** A Lua autocmd callback that returns a truthy value is removed (`:h nvim_create_autocmd`). Both `BufReadCmd` callbacks — videos since they shipped, and pictures — ended in `return true`, meant as "handled", so the first file of each extension got its preview and every later one in the same session opened as binary. They return nothing now, and a suite opens several files of one extension in one session to keep it that way.
 - **Completion is automatic now, and it was not before.** `~/.vimrc` has OmniCppComplete's block commented out with a note that its popup interfered with typing, and for years the answer here was that completion stays on `<C-x><C-o>`. blink.cmp is why that changed: it ranks by a real fuzzy match rather than the first tag it finds, and every key that drives the menu falls back to vim's own when the menu is closed, so nothing that used to work stopped. `<C-x><C-o>` is still there. To go back, delete the `saghen/blink.cmp` entry from `lua/hikovim/plugins.lua`.
 - **The layout stays out of the way where it would be wrong.** It does not start for a `$EDITOR` call from git, `nvim -d`, piped stdin, or a session that restored its own windows.
 - **A running Neovim keeps its old configuration** until you restart it. That is harmless, so unlike `bin/iterm-tune` this script does not refuse to write while the program is open.

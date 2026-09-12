@@ -26,9 +26,10 @@ adds them up and exits non-zero if anything failed.
 | `test-vlc-default.sh` | the content-type table, and the LaunchServices parser against a recorded dump |
 | `test-install-loop.sh` | `install_all_tools` reaches every catalog entry even when a tool drains stdin |
 | `test-payload-pick.sh` | which file inside an archive gets installed, and whether a version query proves anything |
+| `test-picture-preview.sh` | what opening a picture shows: the formats, the one conversion flag by flag, the frame and page lines, APNG detection, and several files of one extension in one session |
 | `test-readme-keys.sh` | every mapping and command the Neovim configuration defines — in `keys.lua`, `ide.lua` and the plugin specs alike — is written down in README.md's keys reference |
 
-Eleven of these exist because of a way asset selection, a write, or a run
+Thirteen of these exist because of a way asset selection, a write, or a run
 goes wrong:
 
 - an `arm64` host was handed a `linux_arm` build, so `select_asset` matches a
@@ -77,6 +78,16 @@ goes wrong:
   nothing checks which. `pb_path` takes the path as segments so it cannot be
   reassembled wrong, and the suite asserts the command string, which needs no
   macOS.
+- the second video of each extension in a session opened as binary, and when
+  pictures got the same kind of preview, so did the second picture. Both
+  `BufReadCmd` callbacks ended in `return true`, meant as "handled"; a Lua
+  autocmd callback returning a truthy value is deleted. Every headless check
+  opened one file per Neovim, so none of them could see it.
+  `test-picture-preview.sh` opens three PNGs and two MP4s in one session.
+- a picture stayed on "reading…" forever. The conversion ran inside
+  `vim.system`'s exit callback, a fast event context where `vim.fn` is refused,
+  and died on `sha256()`. The headless check called it from the main loop and
+  passed. Every system callback in `picture.lua` is `schedule_wrap`'d.
 - the nvim wrapper used `--remote-wait`, which Neovim does not implement at all
   — it answers `E5600` — so the terminal pane got an error instead of a file
 - `pending_count` counted `lazy-lock.json`, so `--freeze` refused to run in the

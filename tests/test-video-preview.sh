@@ -25,18 +25,16 @@ chk "and is set up"          "$(grep -c "require('hikovim.video').setup()" "$INI
 chk "it replaces the read"   "$(grep -c "'BufReadCmd'" "$VIDEO")" "1"
 
 # The container list lives in media.lua, because three readers need the same
-# answer: video.lua's BufReadCmd, image.nvim's hijack_file_patterns, and
-# ide.lua's decision about what <CR> and a double click hand to the system.
-# image.nvim exposes no accessor for what it was told to hijack, so a second
-# copy is how a format ends up with a preview and no viewer, or the reverse.
+# answer: video.lua's BufReadCmd, picture.lua's, and ide.lua's decision about
+# what <CR> and a double click hand to the system. A second copy is how a
+# format ends up with a preview and no viewer, or the reverse.
 chk "media.lua ships"          "$(exists "$MEDIA")" "y"
 chk "containers are matched"   "$(grep -c "'\*.mkv'" "$MEDIA")" "1"
 chk "video.lua reads them"     "$(grep -c 'pattern = media.VIDEO' "$VIDEO")" "1"
 chk "and keeps no copy"        "$(grep -c "'\*.mkv'" "$VIDEO")" "0"
 chk "pictures are matched"     "$(grep -c "'\*.png'" "$MEDIA")" "1"
-chk "image.nvim reads them" \
-  "$(grep -c "hijack_file_patterns = require('hikovim.media').IMAGE" "$PLUGINS_LUA")" "1"
-chk "and keeps no copy either" "$(grep -c "'\*.png'" "$PLUGINS_LUA")" "0"
+chk "picture.lua reads them"   "$(grep -c 'pattern = media.IMAGE' "$REPO_ROOT/share/nvim/lua/hikovim/picture.lua")" "2"
+chk "and plugins.lua keeps no copy" "$(grep -c "'\*.png'" "$PLUGINS_LUA")" "0"
 
 # A preview that kept buftype '' would let :w write this text over the video.
 chk "the buffer cannot be written" "$(grep -c "buftype = 'nowrite'" "$VIDEO")" "1"
