@@ -657,6 +657,8 @@ NANOLANDER_NERD_FONT=Hack ./bin/nanolander --only nerd-font
 | GNOME Terminal | Preferences → your profile → Text → Custom font |
 | VS Code | `"terminal.integrated.fontFamily": "JetBrainsMono Nerd Font Mono"` |
 
+**On iTerm2, check the second font as well.** Settings → Profiles → Text also has *Use a different font for non-ASCII text*, and while it is on it applies to **every** non-ASCII character, not only the ones the main font cannot draw. A profile still naming the old `PowerlineSymbols` there — it predates Nerd Fonts and holds about ten glyphs — shows a box for every icon however good the main font is, because the icons sit in the Private Use Area, which carries no Unicode meaning for macOS's fallback chain to resolve, so the lookup ends at Last Resort. Turn the option off: a Nerd Font already contains the Powerline glyphs it was once needed for. `./bin/iterm-tune` reports the state of both fonts.
+
 If you would rather not change the font, tell Starship to use plain text instead:
 
 ```bash
@@ -859,7 +861,7 @@ macOS users can also tune iTerm2's rendering settings. Look at the current state
 ./bin/iterm-tune --restore    # restore the most recent backup
 ```
 
-What it covers: GPU rendering is not disabled on battery, rendering favours throughput, transparency and blur are turned off, ligatures are turned off, and scrollback becomes bounded instead of unlimited. Trigger counts and background images are reported only, never modified.
+What it covers: GPU rendering is not disabled on battery, rendering favours throughput, transparency and blur are turned off, ligatures are turned off, and scrollback becomes bounded instead of unlimited. Trigger counts, background images and both font settings are reported only, never modified — those are your choices. The font report is the one to read when the prompt or a file tree is full of boxes: it names the main font and, separately, the non-ASCII font that overrides it for every icon whenever that option is on.
 
 ## VLC as the video player
 

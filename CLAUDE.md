@@ -360,6 +360,31 @@ Follow `bin/iterm-tune`:
   unchecked — and the whole point of that table above is that helpers keep
   arriving.
 
+### bin/iterm-tune
+
+- **A PlistBuddy key path needs a quote around every segment.** PlistBuddy
+  splits its `-c` command on whitespace, so `Print :New Bookmarks:0:Guid` asks
+  for an entry called `:New`. Every per-profile key in iTerm2's preferences is
+  under a name with a space, so `profile_count` answered 0 on every machine:
+  the whole per-profile report never ran, the font advisory never printed, and
+  `--apply` wrote none of `PROFILE_SETTINGS` while reporting that it had. Go
+  through `pb_path`, which takes the path as segments — a preassembled string
+  is how it was got wrong. A quoted array index is accepted, so there is no
+  exception for the index.
+- **The exit status of a lookup is not proof it found anything**, same rule as
+  `command_works` and `parse_handler_dump`: a count of 0 profiles read exactly
+  like a machine with no profiles.
+- **Both fonts are reported, neither is written.** iTerm2's second font — the
+  non-ASCII one — overrides the main face for every icon while it is on, and
+  the icons are all Private Use Area, which macOS's fallback chain cannot
+  resolve, so a `PowerlineSymbols` there means boxes everywhere however good
+  `Normal Font` is. That is `non_ascii_hides_icons`. The two keys are spelled
+  differently in iTerm2 itself — the switch is `Use Non-ASCII Font`, the font
+  is `Non Ascii Font` — and neither spelling is a typo to be tidied.
+- **Compare a plist value, not its text.** PlistBuddy prints a real back as
+  `0.000000`, which is not the `0` in the table; `same_value` compares numbers
+  numerically so the report does not claim a change that is not one.
+
 ### bin/vlc-default
 
 - **A bundle identifier is the only safe way to name an application.** Parallels

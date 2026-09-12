@@ -22,13 +22,13 @@ adds them up and exits non-zero if anything failed.
 | `test-nvim-land.sh` | `report` / `--apply` / `--restore` |
 | `test-video-preview.sh` | what opening a video shows: ffprobe formatting, the nowrite guard, graceful degradation |
 | `test-ide-remote.sh` | the nvim remote-open shell line, `--freeze`'s lockfile guard, and the tree that replaced oil in the explorer pane |
-| `test-iterm-tune.sh` | the settings tables and Nerd Font face names |
+| `test-iterm-tune.sh` | the settings tables, the quoting of a PlistBuddy key path, and the Nerd Font face names |
 | `test-vlc-default.sh` | the content-type table, and the LaunchServices parser against a recorded dump |
 | `test-install-loop.sh` | `install_all_tools` reaches every catalog entry even when a tool drains stdin |
 | `test-payload-pick.sh` | which file inside an archive gets installed, and whether a version query proves anything |
 
-Ten of these exist because of a way asset selection, a write, or a run goes
-wrong:
+Eleven of these exist because of a way asset selection, a write, or a run
+goes wrong:
 
 - an `arm64` host was handed a `linux_arm` build, so `select_asset` matches a
   full suffix before it falls back to substring containment
@@ -65,6 +65,17 @@ wrong:
   prefers an executable now and `command_works` requires the version query to
   print something; `test-payload-pick.sh` covers both halves, because either
   one alone still lets a broken install through.
+- every per-profile lookup in `iterm-tune` returned nothing, on every machine
+  it had ever run on. PlistBuddy splits its `-c` command on whitespace, so
+  `Print :New Bookmarks:0:Guid` asks for an entry called `:New`; with the
+  segments quoted it answers. `profile_count` therefore counted 0, the report
+  printed `Profiles: 0` and stopped — including the font advisory that exists
+  to explain a prompt full of boxes — and `--apply` wrote none of
+  `PROFILE_SETTINGS` while reporting that it had. Same shape as `duti -x` in
+  `vlc-default`: the tool answers, the answer means nothing was found, and
+  nothing checks which. `pb_path` takes the path as segments so it cannot be
+  reassembled wrong, and the suite asserts the command string, which needs no
+  macOS.
 - the nvim wrapper used `--remote-wait`, which Neovim does not implement at all
   — it answers `E5600` — so the terminal pane got an error instead of a file
 - `pending_count` counted `lazy-lock.json`, so `--freeze` refused to run in the
@@ -138,7 +149,9 @@ internals are reachable.
 ## What is not covered, and cannot be here
 
 - **macOS**: Homebrew, `ensure_brew_tool`, and all of `iterm-tune`'s
-  PlistBuddy writing. Only its data tables are tested.
+  PlistBuddy reading and writing. Its data tables are tested, and so is the
+  key path it hands PlistBuddy — a string, so it is checkable anywhere — but
+  what PlistBuddy does with that string needs a real plist.
 - **LaunchServices**: `vlc-default`'s writing needs `duti` and a real
   LaunchServices to write into, and reading a real preference file needs
   PlistBuddy. The parser is split from the PlistBuddy call so the awk half can

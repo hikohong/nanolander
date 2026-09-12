@@ -46,7 +46,8 @@ WHAT IT CHANGES:
   Trigger count, background images and the profile font are reported only;
   those are your content and your choice, so this script never touches them.
   The font report says whether your profile can actually draw the glyphs the
-  Starship prompt uses.
+  Starship prompt uses, including the separate non-ASCII font, which overrides
+  the main one for every icon whenever it is turned on.
 
 NOTES:
   iTerm2 must be closed before --apply, otherwise it will write its in-memory
@@ -108,22 +109,48 @@ iterm_running() {
   pgrep -x iTerm2 >/dev/null 2>&1 || pgrep -x iTerm >/dev/null 2>&1
 }
 
-pb_read() {
-  "$PB" -c "Print :$1" "$PLIST" 2>/dev/null
+# pb_path — a PlistBuddy key path with every segment quoted.
+#
+# PlistBuddy splits its -c command on whitespace, so `Print :New Bookmarks:0`
+# asks for an entry called ":New" and fails. Every per-profile key here has a
+# space in its path, which is why profile_count answered 0 on every machine it
+# has ever run on: the per-profile half of the report never ran, the font
+# advisory that exists to explain a prompt full of boxes never printed, and
+# --apply reported success having written none of PROFILE_SETTINGS. Taking the
+# path as segments rather than one preassembled string is what stops a future
+# caller assembling it wrong again. A quoted array index is accepted too, so
+# the rule needs no exception for the index in "New Bookmarks":0.
+pb_path() {
+  local path=""
+  while [ $# -gt 0 ]; do
+    path="$path:\"$1\""
+    shift
+  done
+  printf '%s' "$path"
 }
 
+# pb_read <segment>...
+pb_read() {
+  "$PB" -c "Print $(pb_path "$@")" "$PLIST" 2>/dev/null
+}
+
+# pb_write <type> <value> <segment>... — the value comes first because the key
+# path is variadic. Set for a key that is there, Add for one that is not: Add
+# fails on an existing key and Set fails on a missing one.
 pb_write() {
-  local path="$1" type="$2" value="$3"
-  if "$PB" -c "Print :$path" "$PLIST" >/dev/null 2>&1; then
-    "$PB" -c "Set :$path $value" "$PLIST" >/dev/null 2>&1
+  local type="$1" value="$2" path
+  shift 2
+  path=$(pb_path "$@")
+  if "$PB" -c "Print $path" "$PLIST" >/dev/null 2>&1; then
+    "$PB" -c "Set $path $value" "$PLIST" >/dev/null 2>&1
   else
-    "$PB" -c "Add :$path $type $value" "$PLIST" >/dev/null 2>&1
+    "$PB" -c "Add $path $type $value" "$PLIST" >/dev/null 2>&1
   fi
 }
 
 profile_count() {
   local i=0
-  while "$PB" -c "Print :New Bookmarks:$i:Guid" "$PLIST" >/dev/null 2>&1; do
+  while pb_read "New Bookmarks" "$i" Guid >/dev/null 2>&1; do
     i=$((i + 1))
   done
   printf '%s' "$i"
@@ -131,7 +158,7 @@ profile_count() {
 
 profile_name() {
   local name
-  name=$(pb_read "New Bookmarks:$1:Name")
+  name=$(pb_read "New Bookmarks" "$1" Name)
   printf '%s' "${name:-profile $1}"
 }
 
@@ -145,11 +172,44 @@ is_nerd_font() {
   esac
 }
 
+# non_ascii_hides_icons <use-non-ascii> <non-ascii-font>
+#
+# iTerm2 can send every non-ASCII character to a second font, and when that is
+# on it applies to all of them, not only the ones the main face lacks. The
+# icons eza, neo-tree and Starship draw live in the Private Use Area, which
+# carries no Unicode meaning for macOS's fallback chain to resolve, so a second
+# font without them ends the lookup at Last Resort's box — a correctly chosen
+# Nerd Font as the main face draws boxes anyway. PowerlineSymbols is the usual
+# offender: it predates Nerd Fonts, carries about ten glyphs, and a profile set
+# up before 2015 still names it. An unset second font is not reported, because
+# what iTerm2 falls back to then is its business, not a stated choice.
+non_ascii_hides_icons() {
+  [ "$1" = "true" ] || return 1
+  [ -n "$2" ] || return 1
+  is_nerd_font "$2" && return 1
+  return 0
+}
+
+# same_value — equality as the plist means it, not as a string.
+#
+# PlistBuddy prints a real back as "0.000000", so comparing it to the "0" in
+# the table reported a change that was not one and had --apply rewrite the key
+# on every run. Only visible since the per-profile section started running at
+# all; see pb_path. Numbers are compared numerically, everything else by text.
+same_value() {
+  local a="$1" b="$2"
+  [ "$a" = "$b" ] && return 0
+  case "$a$b" in
+    ''|*[!0-9.-]*) return 1 ;;
+  esac
+  [ "$(awk -v x="$a" -v y="$b" 'BEGIN{ print (x == y) ? 1 : 0 }')" = "1" ]
+}
+
 show_value() {
   local current="$1" desired="$2" label="$3"
   local mark="  "
   [ -z "$current" ] && current="(unset)"
-  if [ "$current" = "$desired" ]; then
+  if same_value "$current" "$desired"; then
     mark="ok"
   else
     mark="->"
@@ -180,7 +240,7 @@ GLOBALS
     section "Profile: $name"
     while IFS='|' read -r key type desired label; do
       [ -n "$key" ] || continue
-      current=$(pb_read "New Bookmarks:$i:$key")
+      current=$(pb_read "New Bookmarks" "$i" "$key")
       show_value "$current" "$desired" "$label"
     done <<PROFILES
 $PROFILE_SETTINGS
@@ -188,10 +248,14 @@ PROFILES
 
     # Advisory only — these are the user's content and preferences, not
     # performance knobs this script gets to decide on.
-    local triggers bg font
-    triggers=$("$PB" -c "Print :New Bookmarks:$i:Triggers" "$PLIST" 2>/dev/null | grep -c 'Dict {')
-    bg=$(pb_read "New Bookmarks:$i:Background Image Location")
-    font=$(pb_read "New Bookmarks:$i:Normal Font")
+    local triggers bg font use_non_ascii non_ascii_font
+    triggers=$(pb_read "New Bookmarks" "$i" Triggers | grep -c 'Dict {')
+    bg=$(pb_read "New Bookmarks" "$i" "Background Image Location")
+    font=$(pb_read "New Bookmarks" "$i" "Normal Font")
+    # Two spellings, both iTerm2's own: the switch is "Non-ASCII", the font it
+    # selects is "Non Ascii". Neither is a typo here.
+    use_non_ascii=$(pb_read "New Bookmarks" "$i" "Use Non-ASCII Font")
+    non_ascii_font=$(pb_read "New Bookmarks" "$i" "Non Ascii Font")
     if [ "${triggers:-0}" -gt 8 ]; then
       warn "  $triggers triggers on this profile; each one runs a regex over every line."
     fi
@@ -206,6 +270,13 @@ PROFILES
         info "  The Starship prompt and eza icons will show boxes. nanolander"
         info "  installs the font; pick it under Settings > Profiles > Text > Font."
       fi
+    fi
+    if non_ascii_hides_icons "$use_non_ascii" "$non_ascii_font"; then
+      warn "  Non-ASCII text is routed to \"$non_ascii_font\", which carries no"
+      info "  Nerd Font glyphs. Every icon is non-ASCII, so they show boxes no"
+      info "  matter how good the main font is. Turn off Settings > Profiles >"
+      info "  Text > \"Use a different font for non-ASCII text\"; a Nerd Font"
+      info "  already has the Powerline glyphs that option was needed for."
     fi
     i=$((i + 1))
   done
@@ -238,7 +309,7 @@ apply() {
   section "Applying"
   while IFS='|' read -r key type desired label; do
     [ -n "$key" ] || continue
-    if pb_write "$key" "$type" "$desired"; then
+    if pb_write "$type" "$desired" "$key"; then
       ok "$label"
     else
       warn "Could not set $key"
@@ -254,7 +325,7 @@ GLOBALS
     info "Profile: $name"
     while IFS='|' read -r key type desired label; do
       [ -n "$key" ] || continue
-      if pb_write "New Bookmarks:$i:$key" "$type" "$desired"; then
+      if pb_write "$type" "$desired" "New Bookmarks" "$i" "$key"; then
         ok "  $label"
       else
         warn "  Could not set $key"
