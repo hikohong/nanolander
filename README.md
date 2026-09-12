@@ -458,9 +458,9 @@ The buffer is `nowrite`, so `:w` can never put this text where the video was. It
 
 **The buffer plays nothing, deliberately.** Playback *in a buffer* is not a missing feature, it is the wrong place for it: one 960×540 frame is 625 KB of sixel, so 24 fps means 14 MB/s of escape sequences for the terminal to parse — and a sixel image is painted on the terminal rather than owned by a buffer, so every statusline tick would tear through it. To watch a file, hand it to something that watches files.
 
-**Choose a video or a picture in the tree and it does that for you.** `<CR>` or a double click hands the file to `vim.ui.open` — `open` on macOS, `xdg-open` on a Linux desktop — so it goes to whatever owns the type: VLC for a video on a machine that has run [`bin/vlc-default`](#vlc-as-the-video-player), and whatever already opens pictures there. Both keys are bound because both mean *I have chosen this one*; a **single click** means *show me this one* and still previews. A directory still expands and every other file still opens in the editor pane, so neither key is taken away from them. A box with no desktop to hand a file to says so rather than going quiet, and for a video it points at `mpv --vo=tct`. Nothing in the editor names an application: that binding belongs to the system, and saying it in two places is how the two come apart.
+**Choose a video in the tree and it plays.** `<CR>` or a double click hands it to `vim.ui.open` — `open` on macOS, `xdg-open` on a Linux desktop — so it goes to whatever owns the type: VLC on a machine that has run [`bin/vlc-default`](#vlc-as-the-video-player). Nothing in the editor names a player; that binding belongs to the system, and saying it in two places is how the two come apart. A box with no desktop to hand a file to says so rather than going quiet, and points at `mpv --vo=tct`.
 
-A picture leaves for the same reason a video does. The preview is the boundary, not a shortfall of it: a video buffer draws one frame because 24 fps of sixel is 14 MB/s of escape sequences, and a picture in a pane a third of the screen wide is a thumbnail rather than a look at the image. Both point at the application that does the job properly.
+**Moving through the tree previews without opening anything.** Land on a picture or a video — with `j` and `k`, or one click — and the pane above the tree swaps the outline for a thumbnail and the numbers; move onto anything else, or leave the tree, and the outline comes back. It is built for going fast: the thumbnail is a small copy, cached like every other, a burst of movement asks only once the cursor rests, and a thumbnail that finishes after the cursor has moved on is thrown away rather than drawn. **Choosing is what reaches the editor pane:** `<CR>` or a double click opens a picture there, drawn from its full copy, while a video, which the editor can only show one frame of, goes to the player. `gx` hands either one to the system instead.
 
 `lua/hikovim/media.lua` owns the two extension lists, and three readers share them: `video.lua`'s `BufReadCmd`, image.nvim's `hijack_file_patterns`, and the tree. image.nvim exposes no accessor for what it was told to hijack, so a second copy is exactly how a format ends up with a preview and no viewer, or the reverse.
 
@@ -581,8 +581,10 @@ The root is the project directory, and nothing pins it there.
 
 | Key | Does |
 | --- | --- |
-| `<CR>`, double click | choose this one. A video or a picture goes to the system's own application; any other file opens in the editor pane; a directory expands |
-| single click | show me this one. A video or a picture previews in the editor pane and the cursor stays in the tree; anything else behaves as `<CR>` |
+| moving onto a picture or a video | its thumbnail and numbers appear in the pane above, in place of the outline; the editor pane is not touched |
+| `<CR>`, double click | choose this one. A picture opens in the editor pane; a video goes to the system's player; any other file opens in the editor pane; a directory expands |
+| single click | show me this one. A picture or a video shows its thumbnail in the pane above and the cursor stays in the tree; anything else behaves as `<CR>` |
+| `gx` | this file, to whatever the system opens it with — the way to a system viewer for a picture |
 | `<BS>` | root up one level. Repeat it to walk out of the project entirely |
 | `.` | make the directory under the cursor the root |
 | `O`, or the `󰥨` button on the first line | browse for a new root in a floating window, walking up and down as far as you like before choosing |
@@ -1143,6 +1145,10 @@ Do not trust `duti -x mp4` to check the result: it resolves by application name 
 Writing needs [`duti`](https://github.com/moretension/duti), which is not part of a base macOS; `--apply` installs it through Homebrew when it is missing and says so. Reporting needs nothing but PlistBuddy.
 
 ## What changed in this release
+
+### A thumbnail in the pane above while you move through the tree (new)
+
+Landing on a picture or a video in the explorer shows its thumbnail and numbers in the pane above — the outline's — without opening anything; `<CR>` or a double click is what reaches the editor pane. A picture chosen that way opens there now rather than in the system viewer, since the thumbnail already covers the quick look and choosing one means looking properly; `gx` is the way to a system viewer. A video still goes to the player. The outline pane had to be told it may hold the thumbnail, or the layout's own rule — only aerial belongs there — would have evicted it straight into the editor pane on every keypress.
 
 ### Completion as you type, and predictive text (new)
 

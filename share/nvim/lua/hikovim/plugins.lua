@@ -304,7 +304,20 @@ return {
               end,
               desc = 'choose the tree root, walking up or down',
             }
-            return { ['<CR>'] = choose, ['<2-LeftMouse>'] = choose, ['O'] = root_pick }
+            -- gx: this file to the system's own viewer. <CR> opens a picture in
+            -- the editor pane now, so this is the way to a system viewer for one,
+            -- and it means what gx means in oil and in Neovim itself.
+            local system_open = {
+              function(state)
+                local ok, ide = pcall(require, 'hikovim.ide')
+                if ok then ide.tree_system_open(state) end
+              end,
+              desc = 'open with the system viewer',
+            }
+            return {
+              ['<CR>'] = choose, ['<2-LeftMouse>'] = choose,
+              ['O'] = root_pick, ['gx'] = system_open,
+            }
           end)(),
         },
         -- oil is the netrw replacement. Two plugins claiming it is how you

@@ -427,6 +427,12 @@ local function buf_fits(kind, buf)
     return vim.bo[buf].filetype == 'neo-tree'
       or vim.api.nvim_buf_get_name(buf):match('^neo%-tree') ~= nil
   end
+  -- The outline pane lends itself to the explorer's thumbnail while the cursor
+  -- is on a picture or a video (peek.lua). Without this, enforce would see a
+  -- buffer that is not aerial, restore the outline, and hand the thumbnail's
+  -- buffer to the editor pane — which is exactly the loading-on-every-keypress
+  -- the thumbnail exists to avoid.
+  if kind == 'aerial' and vim.bo[buf].filetype == 'hikovim_peek' then return true end
   return vim.bo[buf].filetype == kind
 end
 
@@ -587,17 +593,17 @@ function M.tree_open_request(args)
   return { handled = true }
 end
 
--- external_path — the file under a tree node, when it is one the editor can
--- preview but cannot really show you: a video, or a picture.
+-- media_path — the file under a tree node when it is a picture or a video, and
+-- whether <CR> hands it to the system (a video) or opens it here (a picture).
 --
--- media.lua owns both extension lists and answers this, because a second copy
--- of either means a format gets a preview and no viewer, or the reverse.
-local function external_path(node)
+-- media.lua owns both extension lists and both answers, because a second copy
+-- means a format gets a thumbnail and no viewer, or the reverse.
+local function media_path(node)
   local path = (node and node.type == 'file') and node.path or nil
   if not path then return nil end
   local ok, media = pcall(require, 'hikovim.media')
-  if not (ok and media.opens_externally(path)) then return nil end
-  return path
+  if not (ok and media.is_media(path)) then return nil end
+  return path, media.opens_externally(path)
 end
 
 -- node_of — the node under the cursor in a neo-tree state.
@@ -607,18 +613,12 @@ local function node_of(tree_state)
   return ok and node or nil
 end
 
--- tree_node — the node under the cursor in the explorer pane.
---
--- neo-tree hands its own commands a state to read this from; a plain keymap
--- like tree_click has to go and ask for one, and it has to ask the right way.
--- get_state('filesystem') returns the state held *for the tab*, and this tree
--- is at position 'current', whose state is held per window — so that call
--- answered a freshly created empty state with no tree in it, tree_click saw no
--- node, and every click fell through to <CR> and started a player.
--- get_state_for_window reads neo_tree_source and neo_tree_position off the
--- buffer and picks the right one of the two. Wrapped, because a neo-tree that
--- is not loaded must cost a click rather than an error.
 -- tree_state — neo-tree's state for the explorer pane.
+--
+-- neo-tree hands its own commands a state to read; a plain keymap like
+-- tree_click has to go and ask for one, and ask the right way: an empty state
+-- meant tree_click saw no node and every click fell through to <CR>. Wrapped,
+-- because a neo-tree that is not loaded must cost a click rather than an error.
 --
 -- get_state('filesystem') returns the state held for the *tab*, and this tree
 -- is at position 'current', whose state is held per window; that call creates
@@ -670,23 +670,34 @@ local function hand_to_system(path)
     vim.fn.fnamemodify(path, ':t'), why, hint), vim.log.levels.WARN)
 end
 
--- tree_open — <CR> and the double click in the explorer pane. A video or a
--- picture goes to the system's own application; everything else — a directory
--- to expand, any other file — goes to neo-tree's own open, so both keep doing
--- what neo-tree documents.
+-- tree_open — <CR> and the double click in the explorer pane: "I have chosen
+-- this one". A picture opens in the editor pane, drawn from its full normalised
+-- copy; a video goes to the system's player, since the editor pane can only show
+-- one frame of it. Everything else — a directory to expand, any other file —
+-- goes to neo-tree's own open, so both keys keep doing what neo-tree documents.
 --
--- Both are bound, because both mean "I have chosen this one". A single click
--- means "show me this one", which is tree_click below.
+-- A single click means "show me this one", which is tree_click below, and moving
+-- onto a file does the same: the thumbnail in the pane above.
 ---@param tree_state table neo-tree's state for the source the mapping fired in
 function M.tree_open(tree_state)
-  local path = external_path(node_of(tree_state))
+  local path, external = media_path(node_of(tree_state))
   if not path then
     pcall(function()
       require('neo-tree.sources.filesystem.commands').open(tree_state)
     end)
     return
   end
-  hand_to_system(path)
+  if external then return hand_to_system(path) end
+  open_in_editor(path, nil, true)
+end
+
+-- tree_system_open — gx in the explorer pane: this file, to whatever the system
+-- opens it with. The way to a system viewer for a picture now that <CR> opens it
+-- here, and the same meaning gx has in oil and in Neovim itself.
+---@param tree_state table
+function M.tree_system_open(tree_state)
+  local node = node_of(tree_state)
+  if node and node.type == 'file' and node.path then hand_to_system(node.path) end
 end
 
 -- The explorer pane needs no <CR> of its own for anything but a video or a
@@ -710,6 +721,67 @@ end
 -- processed: the first click of a double click used to open the preview *and*
 -- jump to the editor pane, where <2-LeftMouse> is not mapped, so the second
 -- click reached nothing and the double click did nothing at all.
+-- ---------------------------------------------------------------------------
+-- The thumbnail in the outline's pane
+-- ---------------------------------------------------------------------------
+--
+-- While the cursor is on a picture or a video in the explorer, the pane above
+-- lends itself to a thumbnail of it (peek.lua), and gives the outline back the
+-- moment the cursor is on anything else or leaves the tree. Nothing reaches the
+-- editor pane until <CR> or a double click says so.
+
+-- How long the cursor has to rest before a thumbnail is asked for. Short enough
+-- to feel immediate, long enough that holding j through a folder does not start
+-- a conversion per row it passes.
+local PEEK_DELAY_MS = 90
+
+local peek_request = 0
+
+-- peek_hide — give the outline its pane back, if the thumbnail has it.
+--
+-- The outline is reopened rather than the old aerial buffer put back: aerial
+-- keeps one buffer per source buffer, so while the thumbnail was up the editor
+-- may have moved on to a file whose outline is a different buffer.
+local function peek_hide()
+  if not alive(state.outline) then return end
+  local ok, peek = pcall(require, 'hikovim.peek')
+  if not (ok and peek.is_peek(vim.api.nvim_win_get_buf(state.outline))) then return end
+  peek.cancel()
+  state.pane_buf[state.outline] = nil
+  restore_pane(state.outline, 'aerial')
+end
+
+-- peek_update — show the file under the explorer's cursor above it, or hide.
+local function peek_update()
+  if not (M.is_open() and alive(state.outline) and alive(state.explorer)) then return end
+  if vim.api.nvim_get_current_win() ~= state.explorer then return end
+  local path = media_path(tree_node())
+  if not path then return peek_hide() end
+  local ok, peek = pcall(require, 'hikovim.peek')
+  if not ok then return end
+  local buf = peek.buffer()
+  if vim.api.nvim_win_get_buf(state.outline) ~= buf then
+    vim.api.nvim_win_set_buf(state.outline, buf)
+  end
+  state.pane_buf[state.outline] = buf
+  peek.show(state.outline, path)
+end
+
+-- M.peek_now — for the single click, which may not move the cursor at all.
+function M.peek_now()
+  peek_request = peek_request + 1
+  peek_update()
+end
+
+-- peek_soon — for CursorMoved: only the last move in a burst asks.
+local function peek_soon()
+  peek_request = peek_request + 1
+  local mine = peek_request
+  vim.defer_fn(function()
+    if mine == peek_request then peek_update() end
+  end, PEEK_DELAY_MS)
+end
+
 -- The root picker is a folder browser, not a one-shot list. Choosing a row
 -- walks into it and the list redraws in place; the root is only set when you
 -- say so. Picking the destination from a flat list of ancestors and children
@@ -937,9 +1009,13 @@ end
 
 local function tree_click()
   if root_click() then return end
-  local path = external_path(tree_node())
-  if path then
-    open_in_editor(path, nil, false)
+  if media_path(tree_node()) then
+    -- "Show me this one": the thumbnail in the pane above, and nothing else.
+    -- The cursor stays in the tree, which is what keeps the second click of a
+    -- double click on a buffer that maps <2-LeftMouse>. Asked for directly
+    -- rather than left to CursorMoved, because a click on the row the cursor is
+    -- already on moves nothing.
+    M.peek_now()
     return
   end
   local m = vim.fn.maparg('<CR>', 'n', false, true)
@@ -1360,6 +1436,30 @@ function M.setup()
       end,
     })
   end
+
+  -- The thumbnail above the explorer. Not gated on CLICK_OPENS: it follows the
+  -- cursor, and the keyboard moves the cursor as much as the mouse does. Both
+  -- callbacks return nothing — a Lua autocmd callback that returns a truthy
+  -- value is deleted.
+  vim.api.nvim_create_autocmd('FileType', {
+    group = group,
+    pattern = 'neo-tree',
+    callback = function(ev)
+      vim.api.nvim_create_autocmd('CursorMoved', {
+        group = group, buffer = ev.buf,
+        callback = function() peek_soon() end,
+      })
+      vim.api.nvim_create_autocmd('WinLeave', {
+        group = group, buffer = ev.buf,
+        -- Scheduled, so the window being entered is current by the time the
+        -- outline is reopened and focus is not pulled back.
+        callback = function()
+          peek_request = peek_request + 1
+          vim.schedule(peek_hide)
+        end,
+      })
+    end,
+  })
 
   -- <CR> and double click in the outline obey the one-editor-window rule. The
   -- explorer pane needs no equivalent; see the note above outline_select.

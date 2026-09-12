@@ -278,9 +278,9 @@ chk "and names no player itself" \
 chk "it asks media.lua"            "$(grep -c 'media.opens_externally(path)' "$IDE")" "1"
 chk "which exports the answer" \
   "$(grep -c 'function M.opens_externally' "$MEDIA_LUA")" "1"
-# A picture leaves for the same reason a video does, so it is the same branch
-# rather than a second one alongside it.
-chk "one branch for both kinds"    "$(grep -c 'local function external_path' "$IDE")" "1"
+# One branch answers both kinds, and says which of the two opens externally,
+# rather than a picture branch and a video branch drifting apart.
+chk "one branch for both kinds"    "$(grep -c 'local function media_path' "$IDE")" "1"
 chk "and no video-only branch"     "$(grep -c 'video_path' "$IDE")" "0"
 # A directory to expand and every other file keep doing what neo-tree
 # documents, so neither key is taken away from them.
@@ -292,12 +292,62 @@ chk "a box with no desktop is told" "$(grep -c 'cannot open %s' "$IDE")" "1"
 chk "and pointed at mpv"            "$(grep -c 'mpv --vo=tct' "$IDE")" "1"
 
 # A mouse mapping is looked up in the buffer that is current when the key is
-# processed. The first click of a double click opened the preview and jumped to
-# the editor pane, where <2-LeftMouse> is not mapped — so the second click
-# reached nothing and the double click did nothing at all. A video previews
-# without taking the cursor out of the tree, which is what keeps the second
-# click on a buffer that has the mapping.
-chk "a previewed video keeps focus" "$(grep -c 'open_in_editor(path, nil, false)' "$IDE")" "1"
+# processed. The first click of a double click once opened a preview and jumped
+# to the editor pane, where <2-LeftMouse> is not mapped — so the second click
+# reached nothing. A single click on a picture or a video now only asks for the
+# thumbnail above, and never touches the editor pane or the cursor.
+chk "a single click on media only peeks" \
+  "$(awk '/^local function tree_click/,/^end/' "$IDE" | grep -c 'M.peek_now()')" "1"
+chk "and opens nothing in the editor" \
+  "$(awk '/^local function tree_click/,/^end/' "$IDE" | grep -c 'open_in_editor')" "0"
+
+# ---------------------------------------------------------------------------
+# The thumbnail in the outline's pane (peek.lua)
+# ---------------------------------------------------------------------------
+PEEK="$REPO_ROOT/share/nvim/lua/hikovim/peek.lua"
+chk "peek.lua ships" "$(exists "$PEEK")" "y"
+
+# <CR> means "I have chosen this one": a picture opens in the editor pane, a
+# video goes to the system's player, since the editor pane shows one frame.
+chk "<CR> on a picture opens it here" \
+  "$(awk '/^function M.tree_open\(/,/^end/' "$IDE" | grep -c 'open_in_editor(path, nil, true)')" "1"
+chk "<CR> on a video goes to the system" \
+  "$(awk '/^function M.tree_open\(/,/^end/' "$IDE" | grep -c 'if external then return hand_to_system(path) end')" "1"
+chk "media.lua: only a video opens externally" \
+  "$(awk '/^function M.opens_externally/,/^end/' "$MEDIA_LUA" | grep -c 'return M.is_video(path)$')" "1"
+# gx is the way to a system viewer for a picture now, bound through neo-tree's
+# own mapping table for the same reason O is.
+chk "gx is bound through neo-tree"  "$(grep -c "\['gx'\] = system_open" "$PLUGINS")" "1"
+
+# The pane rule. Without it enforce sees a buffer that is not aerial, restores
+# the outline and hands the thumbnail's buffer to the editor pane — loading on
+# every keypress, which the thumbnail exists to avoid.
+chk "the outline pane may hold the thumbnail" \
+  "$(grep -c "kind == 'aerial' and vim.bo\[buf\].filetype == 'hikovim_peek'" "$IDE")" "1"
+chk "and peek.lua names that filetype" "$(grep -c "M.FILETYPE = 'hikovim_peek'" "$PEEK")" "1"
+
+# Giving the pane back reopens the outline rather than restoring an old aerial
+# buffer: aerial keeps one buffer per source buffer, and the editor may have
+# moved on while the thumbnail was up.
+chk "hiding reopens the outline" \
+  "$(awk '/^local function peek_hide/,/^end/' "$IDE" | grep -c "restore_pane(state.outline, 'aerial')")" "1"
+chk "and forgets the thumbnail buffer first" \
+  "$(awk '/^local function peek_hide/,/^end/' "$IDE" | grep -c 'state.pane_buf\[state.outline\] = nil')" "1"
+
+# Built for moving fast: a debounce, and a generation number so a result that
+# arrives after the cursor has moved on is dropped instead of drawn.
+chk "cursor moves are debounced"  "$(grep -c '^local PEEK_DELAY_MS = ' "$IDE")" "1"
+chk "stale results are dropped"   "$(grep -c 'mine == generation' "$PEEK")" "1"
+chk "leaving the tree gives the pane back" \
+  "$(grep -c "vim.api.nvim_create_autocmd('WinLeave'" "$IDE")" "1"
+# A thumbnail is picture.lua's normalise at a small box, cached the same way,
+# and a video's frame comes from video.lua's own command — no second copy.
+chk "a thumbnail is a small normalise" "$(grep -c 'picture.normalise(path, M.PEEK_BOX, done)' "$PEEK")" "1"
+chk "a video frame is video.lua's"     "$(grep -c 'video.frame_argv(path, video.frame_at(duration), frame)' "$PEEK")" "1"
+chk "and peek keeps no ffmpeg argv"    "$(grep -c "'-frames:v'" "$PEEK")" "0"
+# The callbacks go on to use vim.fn, so they run on the main loop, and none of
+# the autocmd callbacks returns a truthy value.
+chk "peek's system callbacks are scheduled" "$(grep -c 'vim.schedule_wrap(function' "$PEEK")" "4"
 chk "focus is restored, not moved"  "$(grep -c 'if not focus and alive(here)' "$IDE")" "1"
 # get_state('filesystem') returns the state held for the *tab*, and this tree is
 # at position 'current', whose state is held per window. That call answered a
