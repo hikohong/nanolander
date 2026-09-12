@@ -44,6 +44,17 @@ local TERM_RATIO    = 1 / 4    -- terminal against the left column
 -- click region of its own on every tab in the tabline.
 local CLOSE_ICON = '✕'
 
+-- The root picker's button, on the explorer pane's first line after the sort
+-- arrow. A folder with a magnifier: the left-hand icon on that line is already
+-- a plain folder, so a second plain folder would read as decoration rather
+-- than something to press.
+--
+-- One copy, exported, because plugins.lua renders it into the root name and
+-- root_click has to find it again in the rendered line. Two copies is how the
+-- button appears and clicking it does nothing. Same rule as media.lua's
+-- extension lists.
+M.ROOT_PICK_ICON = '󰥨'
+
 -- How a tab is painted, in both strips: the files along the top and the shells
 -- in the terminal pane's winbar.
 --
@@ -607,12 +618,23 @@ end
 -- get_state_for_window reads neo_tree_source and neo_tree_position off the
 -- buffer and picks the right one of the two. Wrapped, because a neo-tree that
 -- is not loaded must cost a click rather than an error.
-local function tree_node()
+-- tree_state — neo-tree's state for the explorer pane.
+--
+-- get_state('filesystem') returns the state held for the *tab*, and this tree
+-- is at position 'current', whose state is held per window; that call creates
+-- and returns an empty one. So this is the only place the question is asked,
+-- and tree_node and root_pick both come through here rather than each asking
+-- in its own way.
+local function tree_state()
   local ok, manager = pcall(require, 'neo-tree.sources.manager')
   if not ok then return nil end
-  local got, tree_state = pcall(manager.get_state_for_window)
+  local got, state_for_window = pcall(manager.get_state_for_window)
   if not got then return nil end
-  return node_of(tree_state)
+  return state_for_window
+end
+
+local function tree_node()
+  return node_of(tree_state())
 end
 
 -- hand_to_system — what to do with a video or a picture, which is not to show
@@ -688,7 +710,124 @@ end
 -- processed: the first click of a double click used to open the preview *and*
 -- jump to the editor pane, where <2-LeftMouse> is not mapped, so the second
 -- click reached nothing and the double click did nothing at all.
+-- root_candidates — where the explorer pane could be re-rooted to, as one
+-- list: every directory above the current root, then the directories directly
+-- inside it. Up and down in one prompt, because "somewhere else" is the
+-- question, not which direction it is in.
+local function root_candidates(root)
+  local out = {}
+  -- Upwards, nearest first, stopping at the filesystem root. vim.fs.parents
+  -- ends on its own; the guard is for a path it cannot walk.
+  local seen, dir = 0, root
+  while seen < 64 do
+    local parent = vim.fs.dirname(dir)
+    if not parent or parent == dir then break end
+    out[#out + 1] = { path = parent, up = true }
+    dir = parent
+    seen = seen + 1
+  end
+  -- Downwards, one level, sorted. fs_dir rather than a glob so a name with a
+  -- bracket or a space in it cannot change what is listed.
+  local names = {}
+  for name, kind in vim.fs.dir(root) do
+    if kind == 'directory' then names[#names + 1] = name end
+  end
+  table.sort(names)
+  for _, name in ipairs(names) do
+    out[#out + 1] = { path = root .. '/' .. name, up = false }
+  end
+  return out
+end
+
+-- root_set — re-root the explorer pane.
+--
+-- The pane is neo-tree at position 'current', so :Neotree renders into
+-- whichever window is focused. The picker is a floating window, so focus is
+-- not the tree by the time a choice comes back — the window has to be made
+-- current again first, or the editor pane becomes a second tree.
+local function root_set(win, path)
+  if not (win and vim.api.nvim_win_is_valid(win)) then return end
+  vim.api.nvim_set_current_win(win)
+  local ok, command = pcall(require, 'neo-tree.command')
+  if not ok then
+    vim.notify('[nanolander] neo-tree is not installed yet (:Lazy sync).',
+      vim.log.levels.WARN)
+    return
+  end
+  pcall(command.execute, { action = 'focus', source = 'filesystem', dir = path })
+end
+
+-- M.root_pick — the floating chooser, on the icon and on <C-r> in the tree.
+--
+-- fzf-lua when it is there, because that is what every other picker in this
+-- configuration uses and it brings fuzzy matching to a list that can be long.
+-- vim.ui.select otherwise: layer 3 has to stay useful on a box whose first
+-- start had no network, the same reason pick() in keys.lua falls back.
+function M.root_pick()
+  local win = vim.api.nvim_get_current_win()
+  local state_for_window = tree_state()
+  local root = (state_for_window and state_for_window.path) or vim.uv.cwd()
+  if not root then return end
+
+  local items = root_candidates(root)
+  if #items == 0 then
+    vim.notify('[nanolander] nowhere to go from ' .. root, vim.log.levels.INFO)
+    return
+  end
+
+  -- What the row says. The arrow is the whole point of showing both
+  -- directions in one list, and both are plain Unicode rather than Nerd Font
+  -- glyphs, so the prompt reads correctly on a terminal with no patched font.
+  local labels, by_label = {}, {}
+  for _, item in ipairs(items) do
+    local label = (item.up and '↑  ' or '↓  ') .. vim.fn.fnamemodify(item.path, ':~')
+    labels[#labels + 1] = label
+    by_label[label] = item.path
+  end
+
+  local has_fzf, fzf = pcall(require, 'fzf-lua')
+  if has_fzf and fzf.fzf_exec then
+    fzf.fzf_exec(labels, {
+      prompt = 'Tree root> ',
+      winopts = { height = 0.55, width = 0.65 },
+      actions = {
+        ['default'] = function(selected)
+          local pick = selected and selected[1]
+          if pick and by_label[pick] then root_set(win, by_label[pick]) end
+        end,
+      },
+    })
+    return
+  end
+  vim.ui.select(labels, { prompt = 'Tree root' }, function(choice)
+    if choice and by_label[choice] then root_set(win, by_label[choice]) end
+  end)
+end
+
+-- root_click — was this click on the picker button?
+--
+-- The button's column is not computed. The rendered first line is searched for
+-- the icon and the click's byte column compared against where it actually
+-- landed, because the text before it is neo-tree's: an indent, a folder icon,
+-- the root name, and a sort arrow that is there only at position 'current'.
+-- Anything that counted columns would be wrong the first time one of those
+-- changed width.
+local function root_click()
+  local pos = vim.fn.getmousepos()
+  if pos.line ~= 1 or pos.column < 1 then return false end
+  local line = vim.api.nvim_buf_get_lines(0, 0, 1, false)[1]
+  if not line then return false end
+  local from, to = line:find(M.ROOT_PICK_ICON, 1, true)
+  if not from then return false end
+  -- One cell of slack on each side: the glyph is one column wide and a click
+  -- at its edge is a click on it.
+  if pos.column < from - 1 or pos.column > to + 1 then return false end
+  M.root_pick()
+  return true
+end
+
 local function tree_click()
+  if root_click() then return end
   local path = external_path(tree_node())
   if path then
     open_in_editor(path, nil, false)
@@ -1112,6 +1251,21 @@ function M.setup()
       end,
     })
   end
+
+  -- The root picker, for people not reaching for the mouse. Buffer-local, and
+  -- <C-r> is redo — which a nomodifiable tree buffer has no use for, so this
+  -- takes nothing away. neo-tree's own <BS> and . still walk up and down one
+  -- step at a time.
+  vim.api.nvim_create_autocmd('FileType', {
+    group = group,
+    pattern = 'neo-tree',
+    callback = function(ev)
+      vim.keymap.set('n', '<C-r>', M.root_pick, {
+        buffer = ev.buf, silent = true, nowait = true,
+        desc = 'Choose the tree root, up or down',
+      })
+    end,
+  })
 
   -- <CR> and double click in the outline obey the one-editor-window rule. The
   -- explorer pane needs no equivalent; see the note above outline_select.

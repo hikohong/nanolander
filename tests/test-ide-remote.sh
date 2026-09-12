@@ -312,4 +312,61 @@ for plugin in neo-tree.nvim flatten.nvim nui.nvim plenary.nvim oil.nvim image.nv
 done
 chk "and pins no luarocks bootstrap" "$(grep -c '"hererocks":' "$LOCK")" "0"
 
+# ---------------------------------------------------------------------------
+# The explorer pane's root picker: the button on the first line, and <C-r>.
+# ---------------------------------------------------------------------------
+IDE="$REPO_ROOT/share/nvim/lua/hikovim/ide.lua"
+PLUG="$REPO_ROOT/share/nvim/lua/hikovim/plugins.lua"
+
+# One owner for the icon. plugins.lua renders it into the root name and
+# ide.root_click searches the rendered line for it again, so a second copy is
+# how the button appears and clicking it does nothing — the same failure
+# media.lua's single extension list exists to prevent.
+chk "the icon is declared once" "$(grep -c "^M.ROOT_PICK_ICON = " "$IDE")" "1"
+chk "and plugins.lua reads it"  "$(grep -c 'ide.ROOT_PICK_ICON' "$PLUG")" "1"
+chk "plugins.lua keeps no copy" "$(grep -c "ROOT_PICK_ICON = '" "$PLUG")" "0"
+
+# The icon has to be a Nerd Font glyph the shipped font actually carries, and
+# one that is not already on that line: the left-hand icon is a plain folder.
+chk "the icon is folder-search" \
+  "$(grep "^M.ROOT_PICK_ICON = " "$IDE" | grep -c "$(printf '\xf3\xb0\xa5\xa8')")" "1"
+
+# Overriding the one component, not the whole renderer: neo-tree owns the
+# layout of that line, and copying its `directory` renderer in here would go
+# stale the first time upstream changed it.
+chk "only the name component is overridden" "$(grep -c "name = function(config, node, state)" "$PLUG")" "1"
+chk "the default renderer is not copied"    "$(grep -c "renderers = {" "$PLUG")" "0"
+chk "and it calls neo-tree's own name"      "$(grep -c "common.name(config, node, state)" "$PLUG")" "1"
+chk "only the root line gets it"            "$(grep -c 'node:get_depth() == 1' "$PLUG")" "1"
+
+# The click region is found, never counted. Everything before the icon on that
+# line is neo-tree's — an indent, a folder icon, the root name, and a sort
+# arrow that exists only at position 'current' — so column arithmetic would be
+# wrong the first time one of them changed width.
+chk "the click finds the icon in the line" "$(grep -c "line:find(M.ROOT_PICK_ICON, 1, true)" "$IDE")" "1"
+chk "and it only acts on line 1"           "$(grep -c 'pos.line ~= 1' "$IDE")" "1"
+
+# Re-rooting has to put the tree window back first. The pane is neo-tree at
+# position 'current', so :Neotree renders into whichever window is focused,
+# and the picker is a float — without this the editor pane becomes a second
+# tree, which is the same trap README warns about for :Neotree dir=.
+chk "the tree window is restored first" \
+  "$(awk '/^local function root_set/, /^end/' "$IDE" | grep -c 'nvim_set_current_win(win)')" "1"
+
+# Both directions in one list, and a keyboard way in.
+chk "candidates go up"   "$(grep -c 'up = true' "$IDE")" "1"
+chk "candidates go down" "$(grep -c 'up = false' "$IDE")" "1"
+chk "<C-r> is bound in the tree" "$(grep -c "'<C-r>', M.root_pick" "$IDE")" "1"
+
+# fzf-lua when it is there, vim.ui.select when it is not: layer 3 has to stay
+# useful on a box whose first start had no network.
+chk "fzf-lua is preferred"        "$(grep -c 'fzf.fzf_exec(labels' "$IDE")" "1"
+chk "and there is a fallback"     "$(grep -c 'vim.ui.select(labels' "$IDE")" "1"
+
+# The row markers are plain Unicode, not Nerd Font glyphs: the prompt has to
+# read correctly on a terminal with no patched font, which is exactly the
+# machine someone is on when they have not run nanolander yet.
+chk "the row markers need no patched font" \
+  "$(grep -c "item.up and '↑  ' or '↓  '" "$IDE")" "1"
+
 finish

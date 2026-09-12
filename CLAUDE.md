@@ -266,6 +266,22 @@ Rules that are easy to break:
   `get_state('filesystem')` returns the state held *for the tab*, and this tree
   is at `position = 'current'`, whose state is held per window, so that call
   creates and returns an empty one and every click falls through to `<CR>`.
+- **The explorer pane's root-picker button has one owner for its icon.**
+  `ide.lua` declares `M.ROOT_PICK_ICON`; `plugins.lua` reads it to render into
+  the root name and `root_click` searches the rendered line for it again. A
+  second copy is how the button appears and clicking it does nothing — the same
+  failure `media.lua`'s single extension list exists to prevent. Three more
+  rules there: override neo-tree's `name` component, never copy its `directory`
+  renderer, or upstream's layout of that line goes stale here; **find** the
+  icon in the line rather than counting columns, because everything before it
+  is neo-tree's and changes width; and `root_set` must make the tree window
+  current before `:Neotree`, since the pane is at position `current` and the
+  picker is a float, so otherwise the editor pane becomes a second tree.
+- **`tree_state()` is the only place the per-window state is asked for.**
+  `get_state('filesystem')` returns the state held for the tab, and this tree
+  is at position `current`, whose state is held per window. `tree_node` and
+  `root_pick` both come through `tree_state`; a second caller asking in its own
+  way is what the suite's "the state is asked per window" check catches.
 - **`media.lua` owns both extension lists, and nothing else may keep a copy.**
   `video.lua`'s `BufReadCmd`, image.nvim's `hijack_file_patterns` and `ide.lua`'s
   tree handoff all read it. image.nvim exposes no accessor for what it was told
