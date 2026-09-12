@@ -628,6 +628,10 @@ Neovim binds these itself the moment a client attaches, so nothing here rebinds 
 
 The language server is also blink.cmp's first source, so its candidates arrive in the menu as you type — see [Completion and predictive text](#completion-and-predictive-text). `./bin/nvim-land` reports which servers this machine can already run.
 
+**This is the one thing completion cannot do without.** Typing `self.` in Python, or `->` in C, asks a question only a language server can answer: what does this object have? The path and buffer sources cannot, so with no server attached the menu stays empty there even though it appears fine while you type a word. nanolander installs no language servers — `clangd` comes with LLVM, and the rest are one `pip`, `npm` or `brew` away — so a freshly landed box has none, and that is the first thing to check when a dot completes nothing.
+
+`lua/hikovim/lsp.lua` knows nine servers and enables one only when the binary its `nvim-lspconfig` command actually runs is on PATH. Python has four of them, and they answer for the same files, so `PREFER` lists them in order and the first one found wins: `basedpyright`, `pyright`, `pylsp`, `jedi-language-server`. Enabling two would mean two sets of diagnostics and two copies of every candidate. `./bin/nvim-land` says which one answers and which are installed but stood down. `ruff` is deliberately not in that list — it is a Python language server with no completion at all, so it complements a type server rather than replacing one.
+
 #### Unchanged from `~/.vimrc`
 
 `,sp`, `,lp`, `,ic`, `,f`, `,F`, `<space>`, `<backspace>`, `<C-h>`, `<C-Z>` and everything else come straight from `~/.vimrc` and behave as they always did. The one difference is where two of them write: `,sp` and `,lp` save `session.nvim` and `shada.nvim` rather than vim's `session.vim` and `viminfo.vim`, so the two editors cannot leave each other an unreadable file — see [Things worth knowing](#things-worth-knowing).

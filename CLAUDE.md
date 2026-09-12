@@ -375,7 +375,28 @@ Rules that are easy to break:
 - **`nvim-land` never deletes a file it does not ship** and never touches
   `~/.vimrc` or `~/.vim`. Foreign files in `~/.config/nvim` are reported only.
 - **The server list is parsed, not repeated.** `nvim-land` reads the `SERVERS`
-  table out of `lua/hikovim/lsp.lua`; keep that table's shape parseable.
+  and `PREFER` tables out of `lua/hikovim/lsp.lua`; keep both shapes
+  parseable — one `name = 'binary'` per line, one
+  `language = { 'a', 'b' }` per line.
+- **The binary in `SERVERS` is the one nvim-lspconfig's `cmd` runs**, not the
+  one you type to install the server. pyright's cmd is
+  `pyright-langserver --stdio`, and the table checked `pyright` — pip's
+  pyright package installs that wrapper without necessarily having the
+  language server binary, so the server was enabled and its cmd then did not
+  exist. Read `lsp/<server>.lua` in nvim-lspconfig before adding a row.
+- **One server per language, chosen in order.** `PREFER` lists the several
+  servers that answer for the same files and `losers()` stands down all but
+  the first on PATH — two attached means two sets of diagnostics and two
+  copies of every completion candidate. Same rule as `pkg_candidates` in
+  `bin/nanolander`. Only servers that actually complete belong there: `ruff`
+  is a Python language server with no `completionProvider`, so it complements
+  a type server and listing it would make it exclude one.
+- **A dot completing nothing is a missing language server, not a broken
+  menu.** `self.` asks what an object has, and neither the path nor the buffer
+  source can answer that, so the menu is empty there while working normally
+  for a word. nanolander installs no language servers by design; the report is
+  where a user finds that out, which is why it has to name the one that
+  answers rather than every one that is installed.
 - Treesitter parsers need the `tree-sitter` CLI *and* a C compiler. Neovim
   bundles `c`, `lua`, `markdown`, `query`, `vim`, `vimdoc`, which is why C
   still works on a bare box.

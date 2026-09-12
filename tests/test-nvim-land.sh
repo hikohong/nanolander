@@ -3,7 +3,7 @@
 # functions with fixtures. ShellCheck cannot see through either. SC2016 is
 # off because the rc line under test must contain a literal $HOME, not this
 # process's expansion of it — that is the thing being asserted.
-# shellcheck disable=SC1091,SC2016,SC2034,SC2317
+# shellcheck disable=SC1090,SC1091,SC2016,SC2034,SC2317
 # bin/nvim-land: report, --apply and --restore against a throwaway HOME.
 #
 # --no-sync everywhere: fetching plugins needs the network, and none of what
@@ -113,5 +113,59 @@ printf 'drifted\n' > "$T/init.vim"
 out=$(PATH="$STUB:$PATH" "$NL" --freeze 2>&1)
 chk "--freeze refuses a drifted tree" "$?" "1"
 chk "and says to apply first"         "$(printf '%s' "$out" | grep -c 'apply first')" "1"
+
+# ---------------------------------------------------------------------------
+# The language server tables. nvim-land parses both out of lua/hikovim/lsp.lua
+# rather than repeating them, so the shape is what these assert — and so is the
+# thing the shape is for: several Python servers answer for the same files, and
+# a report that showed two of them as running would be wrong.
+# ---------------------------------------------------------------------------
+LSP="$REPO_ROOT/share/nvim/lua/hikovim/lsp.lua"
+NVIM_LAND_LIB=1 . "$NL"
+SOURCE_DIR="$REPO_ROOT/share/nvim"
+
+chk "the server list parses"    "$(lsp_servers | wc -l | tr -d ' ')" "9"
+chk "the PREFER list parses"    "$(lsp_preferred | wc -l | tr -d ' ')" "1"
+chk "python is the group"       "$(lsp_preferred | awk '{print $1}')" "python"
+chk "four python servers"       "$(lsp_preferred | awk '{print NF - 1}')" "4"
+
+# The binary has to be the one nvim-lspconfig's cmd runs, not the one you type
+# to install it: pyright's cmd is `pyright-langserver --stdio`, and checking
+# `pyright` enabled a server whose cmd then did not exist.
+chk "pyright checks its own cmd" "$(lsp_servers | awk '$1 == "pyright" { print $2 }')" "pyright-langserver"
+chk "basedpyright likewise"      "$(lsp_servers | awk '$1 == "basedpyright" { print $2 }')" "basedpyright-langserver"
+chk "pylsp is listed"            "$(lsp_servers | awk '$1 == "pylsp" { print $2 }')" "pylsp"
+
+# Every name in PREFER must be a name in SERVERS, or the Lua side looks up a
+# nil binary and the report stands a server down that it never listed.
+unknown=""
+for name in $(lsp_preferred | cut -d' ' -f2-); do
+  lsp_servers | awk -v n="$name" '$1 == n { found = 1 } END { exit !found }' \
+    || unknown="$unknown $name"
+done
+chk "every preferred server is a known one" "$unknown" ""
+
+# ruff is a Python language server and is deliberately not in PREFER: it
+# declares no completionProvider, so it complements a type server rather than
+# replacing one, and listing it would make it exclude one.
+chk "ruff is not in the preference list" "$(lsp_preferred | grep -c ruff)" "0"
+
+# preferred_winner walks the list in order, which is the whole point: with two
+# installed, the first one wins and the other is stood down.
+STUB2="$H/stub-lsp"
+stub_tools "$STUB2" pylsp
+chk "only pylsp installed -> pylsp wins" \
+  "$(preferred_winner python basedpyright pyright pylsp jedi_language_server)" "pylsp"
+stub_tools "$STUB2" pyright-langserver
+chk "pyright installed too -> pyright wins" \
+  "$(preferred_winner python basedpyright pyright pylsp jedi_language_server)" "pyright"
+chk "and the report stands the other down" \
+  "$("$NL" | grep -c 'another server answers')" "1"
+stub_tools "$STUB2" basedpyright-langserver
+chk "basedpyright outranks both" \
+  "$(preferred_winner python basedpyright pyright pylsp jedi_language_server)" "basedpyright"
+chk "none installed -> no winner" \
+  "$(PATH=$(path_without pylsp pyright-langserver basedpyright-langserver jedi-language-server) \
+     preferred_winner python basedpyright pyright pylsp jedi_language_server)" ""
 
 finish

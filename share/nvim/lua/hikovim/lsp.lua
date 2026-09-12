@@ -13,14 +13,39 @@
 
 local M = {}
 
--- server name (as nvim-lspconfig calls it) -> the binary it needs
+-- server name (as nvim-lspconfig calls it) -> the binary it needs.
+--
+-- The binary is the one nvim-lspconfig's own cmd runs, not the one you type to
+-- install it: pyright's cmd is `pyright-langserver --stdio`, and pip's pyright
+-- package installs a `pyright` wrapper that need not have brought the language
+-- server binary with it. Checking the wrapper enabled a server whose cmd then
+-- did not exist.
+--
+-- bin/nvim-land parses this table, so keep it one `name = 'binary'` per line.
 local SERVERS = {
-  clangd         = 'clangd',                       -- C, C++, ObjC
-  lua_ls         = 'lua-language-server',
-  bashls         = 'bash-language-server',
-  pyright        = 'pyright',
-  rust_analyzer  = 'rust-analyzer',
-  gopls          = 'gopls',
+  clangd               = 'clangd',                  -- C, C++, ObjC
+  lua_ls               = 'lua-language-server',
+  bashls               = 'bash-language-server',
+  basedpyright         = 'basedpyright-langserver', -- Python, see PREFER
+  pyright              = 'pyright-langserver',
+  pylsp                = 'pylsp',
+  jedi_language_server = 'jedi-language-server',
+  rust_analyzer        = 'rust-analyzer',
+  gopls                = 'gopls',
+}
+
+-- Languages with more than one server above, in preference order: the first
+-- one on PATH wins and the rest are left alone. Same rule as pkg_candidates
+-- in bin/nanolander, and for the same reason — several of these answer for the
+-- same files, and enabling two means two sets of diagnostics and two copies of
+-- every completion candidate.
+--
+-- Only servers that actually complete belong here. ruff is a Python language
+-- server too and is deliberately absent: it declares no completionProvider,
+-- so it complements a type server rather than replacing one, and listing it
+-- would make it exclude one.
+local PREFER = {
+  python = { 'basedpyright', 'pyright', 'pylsp', 'jedi_language_server' },
 }
 
 local function configure_clangd()
@@ -54,10 +79,28 @@ local function on_attach(args)
   -- rebound in hikovim/keys.lua.
 end
 
+-- losers — every server a PREFER list passes over, so the loop below skips
+-- them even though their binary is there.
+local function losers()
+  local skip = {}
+  for _, candidates in pairs(PREFER) do
+    local chosen
+    for _, server in ipairs(candidates) do
+      if chosen == nil and vim.fn.executable(SERVERS[server]) == 1 then
+        chosen = server
+      else
+        skip[server] = true
+      end
+    end
+  end
+  return skip
+end
+
 function M.setup()
   local enable = {}
+  local skip = losers()
   for server, binary in pairs(SERVERS) do
-    if vim.fn.executable(binary) == 1 then
+    if not skip[server] and vim.fn.executable(binary) == 1 then
       table.insert(enable, server)
     end
   end
@@ -80,5 +123,12 @@ end
 function M.servers()
   return SERVERS
 end
+
+-- Exposed for the same reason, and so the choice can be checked.
+function M.preferred()
+  return PREFER
+end
+
+M.losers = losers
 
 return M
