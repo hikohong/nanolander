@@ -437,9 +437,11 @@ One detail is load-bearing rather than cosmetic: **the click that previews one o
 
 Two things worth knowing. Sixel is the slow backend — image.nvim says so itself — so a large image takes a moment. And `lazy.nvim`'s LuaRocks support is turned off in `init.lua`: image.nvim's rockspec asks for the `magick` rock and lazy answers by bootstrapping hererocks, a build wanting Python and a compiler, on a box whose whole point is that it just lands. `magick_cli` needs none of it.
 
-### Keys
+### Keys and commands
 
-Muscle memory wins. Only the mappings whose vim plugin no longer exists are rebound, and they keep their original keys.
+Every mapping this configuration defines, and the plugin defaults worth knowing in each pane. Muscle memory wins: the only mappings rebound are those whose vim plugin does not exist in Neovim, and they keep their original keys.
+
+#### Rebound, because the vim plugin is gone
 
 | Key | Was | Now |
 | --- | --- | --- |
@@ -455,7 +457,122 @@ Muscle memory wins. Only the mappings whose vim plugin no longer exists are rebo
 | `<F6>` | free | the terminal pane; again for the next shell in it |
 | `<F7>` | free | one more shell in the terminal pane |
 
-Everything else — `,sp`, `,lp`, `,ic`, `,f`, `,F`, `<space>`, `<backspace>`, `<C-h>`, `<C-Z>` — comes straight from `~/.vimrc` and behaves as it always did. New maps only go on keys the vim configuration leaves free: `,gb`, `,gp`, `,ff`, `,fg`, `,fb`, `,fd`, `]c`, `[c`.
+Without a language server the `<C-\>` keys degrade to a ripgrep word search, which is what cscope was approximating anyway. Without fzf-lua either — a first start with no network — they fall back to `:grep` and the quickfix window, so the letters always answer.
+
+#### Added, only on keys `~/.vimrc` leaves free
+
+| Key | Does |
+| --- | --- |
+| `,gb` | git blame for the current line, on and off |
+| `,gp` | preview this hunk |
+| `]c` / `[c` | next / previous git hunk. Inside `nvim -d` these stay vimdiff's own |
+| `,ff` | find a file |
+| `,fg` | live grep |
+| `,fb` | switch buffer |
+| `,fd` | diagnostics in this file |
+
+#### The layout and its panes
+
+| Key or command | Does |
+| --- | --- |
+| `<F4>` | the layout, on and off |
+| `<F5>` | oil, the directory editor, in the window you press it in |
+| `<F6>` | focus the terminal pane; pressed again, the next shell in it |
+| `<F7>` | one more shell in the terminal pane |
+| `:IDE` / `:IDEClose` | build the layout, or drop the panels and keep the file you were editing |
+| `:IDETerm` / `:IDETerm!` | what `<F6>` and `<F7>` do |
+| `:BufClose` / `:BufClose!` | close this tab, buffer and all — what `:q` runs |
+| `<C-w>` then `hjkl` | move between the panes; they are ordinary windows |
+| `<C-w>` in a terminal | leaves terminal mode first, so the same window commands work from the shell pane |
+
+`:q` closes the tab rather than the window: in the editor pane that is the file, in the terminal pane that shell. `:qa`, `:wq`, `:x`, `:q file` and `:1,2q` are left to vim. Closing the last file quits, closing the last shell closes the terminal pane, and `<F6>` brings it back.
+
+#### In the file tree — bottom right, neo-tree
+
+The root is the project directory, and nothing pins it there.
+
+| Key | Does |
+| --- | --- |
+| `<CR>`, double click | choose this one. A video or a picture goes to the system's own application; any other file opens in the editor pane; a directory expands |
+| single click | show me this one. A video or a picture previews in the editor pane and the cursor stays in the tree; anything else behaves as `<CR>` |
+| `<BS>` | root up one level. Repeat it to walk out of the project entirely |
+| `.` | make the directory under the cursor the root |
+| `/` | fuzzy-find a file under the current root |
+| `D` | fuzzy-find a directory |
+| `f` / `<C-x>` | filter on a string / clear the filter |
+| `S` / `s` / `t` | open in a split, a vertical split, a new tab |
+| `a` / `A` | new file / new directory |
+| `r` / `b` | rename / rename the basename only |
+| `d` / `y` / `x` / `p` / `c` / `m` | delete, copy, cut, paste, copy to a path, move to a path |
+| `C` / `z` | collapse this node / every node |
+| `i` | size, permissions and times for this entry |
+| `R` | refresh |
+| `H` | hidden files, on and off — this configuration shows them all already |
+| `]g` / `[g` | next / previous git-modified file |
+| `q` | close the pane |
+| `?` | every mapping neo-tree has |
+
+To send the tree straight to a path, rather than walking there with `<BS>`:
+
+```vim
+:Neotree dir=~/Downloads
+:Neotree dir=.              " back to where you started
+```
+
+Run it **from the tree pane** — `<C-w>l` then `<C-w>j`. The pane is neo-tree at `position = 'current'`, which is what lets the layout own the window rather than neo-tree opening a sidebar of its own, and it means `:Neotree` renders into whichever window has focus: from the editor pane it turns the editor into a second tree.
+
+For a look at one directory outside the project without moving the tree at all, use oil. It opens in the editor pane and the tree stays where it was.
+
+#### In the directory editor — oil, `<F5>`
+
+A directory is an ordinary buffer, so `dd` deletes, `p` pastes, `cw` renames, and `:w` applies the lot.
+
+| Key | Does |
+| --- | --- |
+| `<CR>` | open the entry under the cursor |
+| `-` | parent directory |
+| `_` | the working directory |
+| `` ` `` | `:cd` here |
+| `g.` | hidden entries, on and off |
+| `gx` | hand this file to the system |
+| `gs` | change the sort |
+| `<C-p>` | preview without leaving the listing |
+| `<C-s>` / `<C-h>` / `<C-t>` | open in a vertical split, a split, a new tab |
+| `q` | close — this configuration's one addition to oil |
+| `g?` | every mapping oil has |
+
+#### In the outline — top right, aerial
+
+| Key | Does |
+| --- | --- |
+| `,tb` | the outline, on and off — the key `~/.vimrc` gave Tagbar |
+| `<CR>`, double click | jump to the symbol, in the editor pane |
+| `{` / `}` | previous / next symbol |
+| `[[` / `]]` | previous / next symbol one level up |
+| `p` | scroll the editor to the symbol without leaving the outline |
+| `o` / `O` | fold this subtree / recursively |
+| `q` | close the pane |
+| `?` | every mapping aerial has |
+
+#### From a language server
+
+Neovim binds these itself the moment a client attaches, so nothing here rebinds them.
+
+| Key | Does |
+| --- | --- |
+| `K` | hover |
+| `grn` | rename |
+| `gra` | code action |
+| `grr` | references |
+| `gri` | implementation |
+| `gO` | symbols in this document |
+| `<C-x><C-o>` | completion, on demand rather than as you type |
+
+Completion is deliberately not automatic: `~/.vimrc` turned OmniCppComplete's popup off because it interfered with normal typing, and that preference still stands. `./bin/nvim-land` reports which servers this machine can already run.
+
+#### Unchanged from `~/.vimrc`
+
+`,sp`, `,lp`, `,ic`, `,f`, `,F`, `<space>`, `<backspace>`, `<C-h>`, `<C-Z>` and everything else come straight from `~/.vimrc` and behave as they always did. The one difference is where two of them write: `,sp` and `,lp` save `session.nvim` and `shada.nvim` rather than vim's `session.vim` and `viminfo.vim`, so the two editors cannot leave each other an unreadable file — see [Things worth knowing](#things-worth-knowing).
 
 ### The IDE layout
 
@@ -473,11 +590,7 @@ Everything else — `,sp`, `,lp`, `,ic`, `,f`, `,F`, `<space>`, `<backspace>`, `
         left : right = 4 : 1
 ```
 
-| Command | What it does |
-| --- | --- |
-| `:IDE` / `:IDEClose` | build the layout, or drop the panels and keep the file |
-| `:IDETerm` / `:IDETerm!` | the terminal pane, or one more shell in it |
-| `:BufClose` / `:BufClose!` | close this tab, buffer and all — what `:q` runs |
+Its keys and commands are in [Keys and commands](#keys-and-commands) above; what follows is how the panes behave.
 
 Only the editor pane ever shows file contents. **One click** in the tree opens a file up there and expands a directory in place, as does `<CR>`; anything else that puts a file inside a panel — an fzf-lua pick, a quickfix jump, `gf` — is moved out of it. `:copen` lands inside the editor column rather than across the whole screen, which is the one shape the layout cannot absorb.
 
@@ -492,7 +605,7 @@ Inside a `:terminal` Neovim exports `$NVIM`, pointing at its own socket, which i
 
 **The panels never appear in the tabline.** lualine builds the strip from listed buffers and then invents a tab for the current one if it was not among them, so focusing a panel used to add the outline as `[No Name]`, the tree as `neo-tree filesystem [1002]` and the terminal as `zsh` — each carrying a `✕` that closed the pane. While the cursor is in a panel the tabline keeps showing the file in the editor pane as current, so nothing is invented; and the `✕` only ever acts on a listed buffer, so it cannot take a pane down even if one did appear.
 
-Both strips of tabs close the same way: the `✕` on a tab, or `:q` in the pane it belongs to. `:q` in the editor pane closes the file, `:q` in the terminal pane closes that shell, and `:qa`, `:wq`, `:x` and `:1,2q` are left to vim. Closing the last file quits, closing the last shell closes the terminal pane, and `<F6>` brings that pane back.
+Both strips of tabs close the same way: the `✕` on a tab, or `:q` in the pane it belongs to, which is the rule stated under [the layout's keys](#the-layout-and-its-panes).
 
 neo-tree itself binds only the double click, which left one click moving the cursor and nothing else — indistinguishable from a pane that does not work. `CLICK_OPENS = false` at the top of `ide.lua` puts the double click back.
 

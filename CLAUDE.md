@@ -142,6 +142,14 @@ platform.
   weeks apart get different editors. nvim-treesitter tracks the `main` rewrite
   branch and has no tags, so the lockfile is the only mechanism there is.
   Regenerate it with `./bin/nvim-land --freeze` and commit the result.
+- **README's keys reference is checked, not trusted.** `### Keys and commands`
+  is the one place a reader is told what every mapping does, and
+  `test-readme-keys.sh` fails when a key or a user command the configuration
+  defines is missing from it — so a new mapping is not finished until it is
+  documented. It asserts the section's sub-headings too, since deleting a
+  pane's table would otherwise pass by finding each key elsewhere in the file.
+  Only what this repository defines is checked; the plugin defaults the
+  reference also lists are upstream's, pinned by `lazy-lock.json`.
 - **CI is the only gate.** Every change lands through an auto-merged PR, so
   `.github/workflows/ci.yml` is what stands between a broken script and `main`.
   Do not add a change without running `./tests/run.sh` first.
