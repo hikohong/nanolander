@@ -113,4 +113,29 @@ KEYS="$REPO_ROOT/share/nvim/lua/hikovim/keys.lua"
 chk "layer 3 uses incoming calls" "$(grep -c 'lsp_incoming_calls' "$KEYS")" "1"
 chk "layer 3 uses outgoing calls" "$(grep -c 'lsp_outgoing_calls' "$KEYS")" "1"
 
+# An attached server is not proof it can answer the question, and asking the
+# coarse one put
+#
+#   [Fzf-lua] LSP: server does not support callHierarchy/outgoingCalls
+#
+# on screen where a search should have been. pylsp has references and
+# definition and no callHierarchyProvider at all, so <C-\>c and <C-\>d failed
+# in Python while the same keys worked in C with clangd. Same rule as
+# command_works: the thing has to answer, not merely be there.
+chk "no coarse attached-server check"   "$(grep -c 'has_lsp' "$KEYS")" "0"
+chk "a capability check exists"         "$(grep -c 'local function lsp_can' "$KEYS")" "1"
+chk "and it asks the client itself"     "$(grep -c 'supports_method' "$KEYS")" "1"
+
+# Each key names the method its own picker sends, so the check cannot drift
+# from the request it is guarding.
+for method in 'textDocument/references' 'textDocument/definition' \
+              'callHierarchy/incomingCalls' 'callHierarchy/outgoingCalls'; do
+  chk "a key checks $method" "$(grep -c "lsp_can('$method')" "$KEYS")" "1"
+done
+
+# And all four have somewhere to go when the answer is no. A key that checks a
+# capability and then does nothing is worse than the error it replaced.
+chk "four keys fall back to a word search" \
+  "$(grep -c "pick('grep_cword', {}, cword(), true)" "$KEYS")" "4"
+
 finish

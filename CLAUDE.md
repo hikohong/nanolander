@@ -391,6 +391,21 @@ Rules that are easy to break:
   `bin/nanolander`. Only servers that actually complete belong there: `ruff`
   is a Python language server with no `completionProvider`, so it complements
   a type server and listing it would make it exclude one.
+- **An attached server is not proof it can answer the request.** Every LSP
+  request is optional in the protocol, so `keys.lua` checks
+  `client:supports_method` for the exact method its own picker will send —
+  `lsp_can(...)`, one method per key — and falls back to the ripgrep word
+  search when the answer is no. The coarse "is a server attached" check put
+  `[Fzf-lua] LSP: server does not support callHierarchy/outgoingCalls` on
+  screen in Python while the same keys worked in C: pylsp has references and
+  definition and no `callHierarchyProvider` at all. Third instance of the same
+  rule, after `command_works` and `parse_handler_dump`.
+- **Neovim's own `gr` keys are left alone, including when they fail.** `gri` on
+  a server with no `implementationProvider` prints
+  `vim.lsp: method "textDocument/implementation" is not supported…`, which is
+  clear, harmless and upstream's to own. Do not rebind them to add a fallback:
+  `implementation` has no Python meaning, so a word search there would answer
+  a question nobody asked.
 - **A dot completing nothing is a missing language server, not a broken
   menu.** `self.` asks what an object has, and neither the path nor the buffer
   source can answer that, so the menu is empty there while working normally

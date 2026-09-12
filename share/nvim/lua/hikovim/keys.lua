@@ -27,8 +27,23 @@ local function map_nxo(lhs, rhs, desc)
   vim.keymap.set({ 'n', 'x', 'o' }, lhs, rhs, { silent = true, desc = desc })
 end
 
-local function has_lsp()
-  return #vim.lsp.get_clients({ bufnr = 0 }) > 0
+-- lsp_can — is a server attached that can answer *this* request?
+--
+-- "a server is attached" is a different question, and asking it instead put
+--
+--   [Fzf-lua] LSP: server does not support callHierarchy/outgoingCalls
+--
+-- on screen where a search should have been: pylsp has references and
+-- definition but no callHierarchyProvider at all, so <C-\>c and <C-\>d failed
+-- in Python while the same keys worked in C with clangd. Same rule as
+-- command_works in bin/nanolander — the thing has to answer, not merely be
+-- there. The method named here is the one the picker actually sends, so the
+-- check cannot drift from the request.
+local function lsp_can(method)
+  for _, client in ipairs(vim.lsp.get_clients({ bufnr = 0 })) do
+    if client:supports_method(method) then return true end
+  end
+  return false
 end
 
 -- fallback_grep — what the <C-\> keys do when fzf-lua is not installed yet
@@ -75,11 +90,15 @@ end
 -- which is what cscope was approximating anyway.
 local function cscope_keys()
   map('<C-\\>s', function()          -- s: this symbol
-    if has_lsp() then pick('lsp_references') else pick('grep_cword', {}, cword(), true) end
+    if lsp_can('textDocument/references') then
+      pick('lsp_references')
+    else
+      pick('grep_cword', {}, cword(), true)
+    end
   end, 'cscope s: references to this symbol')
 
   map('<C-\\>g', function()          -- g: its definition
-    if has_lsp() then
+    if lsp_can('textDocument/definition') then
       pick('lsp_definitions')
     elseif not pcall(vim.cmd, 'tag ' .. cword()) then
       -- No language server and no tags file: fall back to a word search.
@@ -88,11 +107,22 @@ local function cscope_keys()
   end, 'cscope g: definition of this symbol')
 
   map('<C-\\>c', function()          -- c: functions calling this one
-    if has_lsp() then pick('lsp_incoming_calls') else pick('grep_cword', {}, cword(), true) end
+    if lsp_can('callHierarchy/incomingCalls') then
+      pick('lsp_incoming_calls')
+    else
+      -- pylsp is the common case here: references and definition, no call
+      -- hierarchy. A word search finds the call sites among other mentions,
+      -- which is what cscope was approximating anyway.
+      pick('grep_cword', {}, cword(), true)
+    end
   end, 'cscope c: callers of this function')
 
   map('<C-\\>d', function()          -- d: functions this one calls
-    if has_lsp() then pick('lsp_outgoing_calls') else pick('grep_cword', {}, cword(), true) end
+    if lsp_can('callHierarchy/outgoingCalls') then
+      pick('lsp_outgoing_calls')
+    else
+      pick('grep_cword', {}, cword(), true)
+    end
   end, 'cscope d: functions called by this one')
 
   map('<C-\\>t', function()          -- t: this text string
