@@ -295,6 +295,25 @@ return {
         },
         -- oil is the netrw replacement. Two plugins claiming it is how you
         -- get a directory opening in whichever one loaded last.
+        -- The root line gains a button after the sort arrow: press it for a
+        -- floating list of where the tree could be rooted instead, upwards or
+        -- down. Overriding the one component rather than the whole `directory`
+        -- renderer, so neo-tree keeps owning the layout of that line and an
+        -- upstream change to it cannot be silently overwritten here.
+        --
+        -- The icon is ide.lua's, read rather than repeated: ide.root_click has
+        -- to find it again in the rendered line to know the button was hit.
+        components = {
+          name = function(config, node, state)
+            local common = require('neo-tree.sources.common.components')
+            local result = common.name(config, node, state)
+            local ok, ide = pcall(require, 'hikovim.ide')
+            if ok and node:get_depth() == 1 then
+              result.text = result.text .. '  ' .. ide.ROOT_PICK_ICON
+            end
+            return result
+          end,
+        },
         hijack_netrw_behavior = 'disabled',
         follow_current_file = { enabled = true, leave_dirs_open = true },
         use_libuv_file_watcher = true,

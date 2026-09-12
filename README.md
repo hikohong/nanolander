@@ -555,6 +555,7 @@ The root is the project directory, and nothing pins it there.
 | single click | show me this one. A video or a picture previews in the editor pane and the cursor stays in the tree; anything else behaves as `<CR>` |
 | `<BS>` | root up one level. Repeat it to walk out of the project entirely |
 | `.` | make the directory under the cursor the root |
+| `<C-r>`, or the `󰥨` button on the first line | choose the root from a floating list: every directory above the current one, then the directories inside it |
 | `/` | fuzzy-find a file under the current root |
 | `D` | fuzzy-find a directory |
 | `f` / `<C-x>` | filter on a string / clear the filter. Buffer-local, so it does not take `<C-x>` away from decrement anywhere else |
@@ -570,7 +571,22 @@ The root is the project directory, and nothing pins it there.
 | `q` | close the pane |
 | `?` | every mapping neo-tree has |
 
-To send the tree straight to a path, rather than walking there with `<BS>`:
+**The button on the first line is the root picker.** The explorer pane's first line is the root itself — a folder icon, the path, and a `▲` that is neo-tree's sort direction for the name column, not a fold arrow. After it sits `󰥨`, and pressing it, or `<C-r>` anywhere in the tree, opens a floating list of everywhere the tree could be rooted instead:
+
+```
+↑  ~/Coding
+↑  ~
+↑  /Users
+↑  /
+↓  ~/Coding/nanolander/bin
+↓  ~/Coding/nanolander/docs
+```
+
+Up and down in one prompt, because *somewhere else* is the question and which direction it is in is not. `↑` rows are the directories above the current root, nearest first; `↓` rows are the ones directly inside it. It is fzf-lua when that is installed, so the list is fuzzy-searchable, and `vim.ui.select` when it is not — layer 3 stays useful on a box whose first start had no network.
+
+`<BS>` and `.` still walk one step at a time; the picker is for going somewhere that is neither one step up nor a directory you can already see.
+
+To send the tree straight to a path you can already name, rather than picking from a list:
 
 ```vim
 :Neotree dir=~/Downloads
