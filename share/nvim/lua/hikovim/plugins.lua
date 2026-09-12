@@ -1,6 +1,7 @@
 -- hikovim plugin set — the Neovim replacements for the plugins vendored in
--- ~/.vim, plus the two things vim never had: treesitter and a language server
--- client. Managed by lazy.nvim; :Lazy shows what is installed.
+-- ~/.vim, plus what vim here never had: treesitter, a language server client,
+-- a completion menu, and the editing plugins behind <C-a> and the [ and ]
+-- motions. Managed by lazy.nvim; :Lazy shows what is installed.
 --
 -- Each entry says which ~/.vim plugin it stands in for, so it is obvious what
 -- to delete here if you ever want the old one back (its guard variable in
@@ -12,6 +13,30 @@
 -- vim. Set this to false to keep treesitter for folds only and let
 -- `syntax on` keep the colours.
 local TS_HIGHLIGHT = true
+
+-- copilot_ready — whether Copilot can actually do anything on this machine.
+--
+-- Two things it needs that nanolander does not provide: Node, which is not in
+-- the catalog, and credentials, which mean a subscription and `:Copilot auth`
+-- once per machine. Without both, entering insert mode had copilot.lua fetch
+-- its language server and announce the download in :messages — on a box that
+-- could never use it. Same rule as image.nvim's terminal gate: a plugin that
+-- cannot work here says nothing and costs nothing.
+--
+-- This gates the InsertEnter trigger only, never the plugin itself. lazy
+-- refuses to load a spec whose `cond` is false even through its own command
+-- (lazy/core/loader.lua), so a `cond` here would take `:Copilot auth` away
+-- from the one machine that needs to run it — there would be no way in.
+local function copilot_ready()
+  if vim.fn.executable('node') == 0 then return false end
+  -- Where copilot.lua's own auth module looks: $XDG_CONFIG_HOME when that is
+  -- a directory, ~/.config otherwise. The directory rather than the file
+  -- inside it, since the credential filename is the plugin's business and has
+  -- changed before — auth.db today, hosts.json in older releases.
+  local config = vim.fn.expand('$XDG_CONFIG_HOME')
+  if vim.fn.isdirectory(config) == 0 then config = vim.fn.expand('~/.config') end
+  return vim.fn.isdirectory(config .. '/github-copilot') == 1
+end
 
 local TS_LANGUAGES = {
   'bash', 'c', 'cmake', 'cpp', 'diff', 'dockerfile', 'git_config', 'gitcommit',
@@ -406,6 +431,143 @@ return {
     opts = {
       winopts = { height = 0.85, width = 0.85, preview = { layout = 'vertical' } },
       grep = { rg_glob = true },
+    },
+  },
+
+  -----------------------------------------------------------------------
+  -- The completion menu. ~/.vimrc's OmniCppComplete block is commented out
+  -- with a note that its popup interfered with typing, and for years the
+  -- answer here was that completion stays on <C-x><C-o>. blink.cmp is the
+  -- reason that changed: it ranks by a real fuzzy match, shows the menu
+  -- without stealing a keystroke, and every key that drives it falls back to
+  -- what vim does when the menu is closed.
+  -----------------------------------------------------------------------
+  {
+    'saghen/blink.cmp',
+    -- A tagged release, because blink publishes a prebuilt fuzzy matcher per
+    -- tag. Building it from source would want cargo on a box whose whole
+    -- point is that it just lands.
+    version = '*',
+    event = 'InsertEnter',
+    opts = {
+      -- The matcher is Rust. 'prefer_rust' takes the prebuilt binary when it
+      -- is there and drops to the Lua implementation when it is not —
+      -- silently, which is the point: 'prefer_rust_with_warning' writes to
+      -- :messages on every start, and a clean :messages is what the headless
+      -- load check asserts. Slower on a huge candidate list, and correct
+      -- everywhere.
+      fuzzy = { implementation = 'prefer_rust' },
+      keymap = {
+        preset = 'default',
+        -- <C-k> is vim's digraph key. blink's default preset puts signature
+        -- help there, which is the one key in that preset that takes
+        -- something vim already uses, so it moves and digraphs stay.
+        ['<C-k>'] = {},
+        ['<C-s>'] = { 'show_signature', 'hide_signature', 'fallback' },
+      },
+      completion = {
+        -- The menu follows the popup transparency ~/.vimrc chose.
+        menu = { winblend = vim.o.pumblend },
+        documentation = { auto_show = true, auto_show_delay_ms = 200 },
+        -- The rest of the line, in grey, ahead of the cursor. This is the
+        -- half people mean by predictive text, and it costs no extra key:
+        -- <C-y> accepts whatever the menu has selected.
+        ghost_text = { enabled = true },
+      },
+      signature = { enabled = true, window = { winblend = vim.o.pumblend } },
+      sources = { default = { 'lsp', 'path', 'snippets', 'buffer' } },
+    },
+  },
+
+  -----------------------------------------------------------------------
+  -- Rename with the result visible while you type it. Neovim's own grn
+  -- renames in one go; this shows every call site changing as you edit.
+  -----------------------------------------------------------------------
+  {
+    'smjonas/inc-rename.nvim',
+    cmd = 'IncRename',
+    config = true,
+  },
+
+  -----------------------------------------------------------------------
+  -- [ and ] motions for the things vim has no motion for: a comment block, a
+  -- diagnostic, an indent level, the jumplist.
+  -----------------------------------------------------------------------
+  {
+    'nvim-mini/mini.bracketed',
+    event = 'BufReadPost',
+    config = function()
+      require('mini.bracketed').setup({
+        -- Off: vim already has these, or hikovim does.
+        file     = { suffix = '' },   -- :next / :prev
+        window   = { suffix = '' },   -- <C-w>w
+        quickfix = { suffix = '' },   -- :cnext / :cprev
+        yank     = { suffix = '' },
+        -- ]c and [c are the git hunks in hikovim/keys.lua, and vimdiff's own
+        -- change motion inside nvim -d. mini.bracketed would take both for
+        -- its comment motion, so the comment target is off rather than moved:
+        -- keys keep their letters here.
+        comment  = { suffix = '' },
+        -- t is taken by ]t / [t for tags, so treesitter nodes go on n.
+        treesitter = { suffix = 'n' },
+      })
+    end,
+  },
+
+  -----------------------------------------------------------------------
+  -- <C-a> and <C-x> on more than a number: a date, a bool, a semver, and
+  -- let/const. vim's own increment only knows integers.
+  -----------------------------------------------------------------------
+  {
+    'monaqa/dial.nvim',
+    keys = {
+      { '<C-a>', function() return require('dial.map').inc_normal() end,
+        expr = true, desc = 'Increment' },
+      { '<C-x>', function() return require('dial.map').dec_normal() end,
+        expr = true, desc = 'Decrement' },
+    },
+    config = function()
+      local augend = require('dial.augend')
+      require('dial.config').augends:register_group({
+        default = {
+          augend.integer.alias.decimal,
+          augend.integer.alias.hex,
+          augend.date.alias['%Y/%m/%d'],
+          augend.constant.alias.bool,
+          augend.semver.alias.semver,
+          augend.constant.new({ elements = { 'let', 'const' } }),
+        },
+      })
+    end,
+  },
+
+  -----------------------------------------------------------------------
+  -- Copilot's inline suggestion — the other half of predictive text, and the
+  -- one entry here that cannot simply land: see copilot_ready above for what
+  -- it needs and why only the InsertEnter trigger is gated. A machine that
+  -- has signed in gets the grey suggestion as it types; one that has not gets
+  -- blink.cmp's menu and silence.
+  -----------------------------------------------------------------------
+  {
+    'zbirenbaum/copilot.lua',
+    -- Always reachable, so `:Copilot auth` and `:Copilot status` work and can
+    -- say what is missing. Auto-loading is what copilot_ready gates: signing
+    -- in takes effect on the next start, like any other configuration change.
+    cmd = 'Copilot',
+    event = copilot_ready() and 'InsertEnter' or nil,
+    opts = {
+      suggestion = {
+        auto_trigger = true,
+        keymap = {
+          accept      = '<C-l>',
+          accept_word = '<M-l>',
+          accept_line = '<M-S-l>',
+          next        = '<M-]>',
+          prev        = '<M-[>',
+          dismiss     = '<C-]>',
+        },
+      },
+      filetypes = { markdown = true, help = true },
     },
   },
 }

@@ -60,7 +60,9 @@ WHAT IT INSTALLS:
   init.vim                     sources ~/.vimrc and ~/.vim when they exist,
                                then patches what Neovim does differently
   lua/hikovim/plugins.lua      treesitter, LSP, aerial, gitsigns, lualine,
-                               oil, neo-tree, flatten, image, fzf-lua —
+                               oil, neo-tree, flatten, image, fzf-lua,
+                               blink.cmp for completion, and the editing
+                               plugins behind <C-a> and the [ / ] motions —
                                through lazy.nvim
   lua/hikovim/lsp.lua          language servers, each enabled only when its
                                binary is on PATH

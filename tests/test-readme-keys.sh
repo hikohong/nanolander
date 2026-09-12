@@ -19,6 +19,7 @@ set -uo pipefail
 README="$REPO_ROOT/README.md"
 KEYS="$REPO_ROOT/share/nvim/lua/hikovim/keys.lua"
 IDE="$REPO_ROOT/share/nvim/lua/hikovim/ide.lua"
+PLUGINS="$REPO_ROOT/share/nvim/lua/hikovim/plugins.lua"
 
 # The reference itself, and its sub-headings. A refactor that drops a pane's
 # table takes every key in it with it, and each assertion below would still
@@ -29,6 +30,8 @@ for h in 'Rebound, because the vim plugin is gone' \
          'The layout and its panes' \
          'In the file tree' \
          'In the directory editor' \
+         'Completion and predictive text' \
+         'Editing, from the coding plugins' \
          'In the outline' \
          'From a language server' \
          'Unchanged from'; do
@@ -41,8 +44,22 @@ lhs_list() {
   {
     grep -ohE "map(_nxo)?\('[^']+'" "$KEYS"
     grep -ohE "keymap\.set\((\{[^}]*\}|'[a-z]'), '[^']+'" "$IDE"
-  } | sed -E "s/.*'([^']+)'\$/\1/" \
+    # plugins.lua defines mappings three more ways, and every one of them was
+    # missed the first time this suite was written — dial's <C-a> passed
+    # undocumented because only the two modules above were read.
+    #
+    #   keys = { { '<C-a>', … } }          a lazy lazy-load trigger
+    #   mappings = { ['<CR>'] = … }        a plugin's own keymap table
+    #   keymap = { accept = '<C-l>', … }   named fields, as copilot spells it
+    #
+    # The first pattern also catches a dependency line, 'owner/repo', which
+    # the slash filter below drops.
+    grep -ohE "^[[:space:]]*\{ '[^']+'," "$PLUGINS"
+    grep -ohE "\['[^']+'\][[:space:]]*=" "$PLUGINS"
+    grep -ohE "=[[:space:]]*'<[^']+>'" "$PLUGINS"
+  } | sed -E "s/.*'([^']+)'.*/\1/" \
     | sed -e 's/<leader>/,/' -e 's/\\\\/\\/' \
+    | grep -E '^(<|,|\]|\[)|^.$' \
     | sort -u
 }
 
@@ -57,12 +74,21 @@ readme_spelling() {
   esac
 }
 
+# The reference section alone, not the whole file. A key mentioned in passing
+# somewhere else is not documented: <C-a> passed this suite on a sentence in
+# the layer-3 table while its own row had been deleted, and neo-tree's
+# clear_filter row carried <C-x> for dial.
+reference=$(sed -n '/^### Keys and commands$/,/^### [^K]/p' "$README")
+chk "the reference was found" \
+  "$([ "$(printf '%s\n' "$reference" | wc -l | tr -d ' ')" -gt 80 ] && echo yes || echo no)" "yes"
+
 count=0
 missing=""
 while IFS= read -r key; do
   [ -n "$key" ] || continue
   count=$((count + 1))
-  grep -Fq -- "$(readme_spelling "$key")" "$README" || missing="$missing $key"
+  printf '%s\n' "$reference" | grep -Fq -- "$(readme_spelling "$key")" \
+    || missing="$missing $key"
 done <<KEYS_IN
 $(lhs_list)
 KEYS_IN
@@ -79,7 +105,7 @@ chk "double click is in the tree table" \
 # A count too, so a regex that silently stops matching cannot pass by finding
 # nothing to check.
 chk "every mapped key is documented" "$missing" ""
-chk "mappings found to check" "$([ "$count" -ge 24 ] && echo enough || echo "$count")" "enough"
+chk "mappings found to check" "$([ "$count" -ge 34 ] && echo enough || echo "$count")" "enough"
 
 # The user commands, the same way.
 cmd_missing=""
@@ -112,5 +138,27 @@ chk "one layout command table" "$(grep -c '| `:IDE` / `:IDEClose` |' "$README")"
 chk "navigate_up documented" "$(grep -c '| `<BS>` | root up one level' "$README")" "1"
 chk "Neotree dir= documented" "$(grep -c 'Neotree dir=' "$README")" "2"
 chk "the focused-window trap is stated" "$(grep -c "position = 'current'" "$README")" "1"
+
+# Completion is the one documented decision this configuration reversed, so
+# README must not still be telling a reader that it is on demand only. The
+# sentence that said so outlived the change once already.
+chk "no stale on-demand-only claim" \
+  "$(grep -c 'Completion is on demand' "$README")" "0"
+chk "the reversal is explained" \
+  "$(grep -c 'Completion is automatic now' "$README")" "1"
+
+# What a reader needs to know about Copilot before it disappoints them: that it
+# is the one entry that cannot simply land.
+copilot_section=$(sed -n '/^#### Completion and predictive text/,/^#### /p' "$README")
+for phrase in 'Node' 'subscription' 'Copilot auth'; do
+  chk "copilot caveat names $phrase" \
+    "$(printf '%s\n' "$copilot_section" | grep -qF "$phrase" && echo yes || echo no)" "yes"
+done
+
+# mini.bracketed's disabled targets are a deliberate list, and the reason each
+# one is off is the part that gets lost. Four letters, four rows.
+bracket_table=$(sed -n '/^| Letter | Left to |/,/^$/p' "$README")
+chk "the disabled bracket letters are a table of four" \
+  "$(printf '%s\n' "$bracket_table" | grep -cE '^\| `')" "4"
 
 finish

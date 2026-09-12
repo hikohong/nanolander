@@ -329,6 +329,37 @@ Rules that are easy to break:
   `lazy-lock.json` is what `--freeze` does, and installing a new plugin
   necessarily makes the target's copy differ, so counting it made `--freeze`
   refuse in exactly the case it exists for and no plugin could ever be added.
+- **Completion is automatic, and it used to be a documented decision that it
+  was not.** `~/.vimrc` has OmniCppComplete's block commented out with a note
+  that its popup interfered with typing, and for years layer 3 answered that by
+  leaving completion on `<C-x><C-o>`. `blink.cmp` reverses it. Keep the reason
+  straight when editing this: the objection was a popup that stole keystrokes,
+  so every key that drives this menu ends in `fallback` and does what vim does
+  when the menu is closed. `<C-x><C-o>` still works. README says so in
+  `### Keys and commands`, and a test fails if the old claim comes back.
+- **blink's fuzzy matcher must fall back silently.** `implementation =
+  'prefer_rust'`, never `'prefer_rust_with_warning'`: the warning lands in
+  `:messages` on every start on a box where the prebuilt binary cannot run,
+  which breaks the same clean-load check that image.nvim's UI gate exists for.
+  `version = '*'` is what gets a prebuilt binary at all — building from source
+  wants cargo.
+- **blink takes `<C-k>` in its default preset, and that is vim's digraph key.**
+  It is moved to `<C-s>`. Same rule as everywhere else here: new maps go on
+  keys vim leaves free.
+- **Copilot is gated on its credentials, not on a `cond`.** lazy refuses to
+  load a spec whose `cond` is false even through its own `cmd`
+  (`lazy/core/loader.lua`), so a `cond` would take `:Copilot auth` away from
+  the only machine that needs to run it. So `cmd = 'Copilot'` is always
+  registered and only `event = 'InsertEnter'` is conditional, via
+  `copilot_ready()`. Without that gate, entering insert mode on a box with no
+  subscription had copilot.lua fetch its language server and announce the
+  download in `:messages`.
+- **mini.bracketed's targets collide with keys that are already owned**, and
+  the fix is to switch the target off rather than move the key: `comment` is
+  off because `]c` and `[c` are the git hunks and vimdiff's change motion,
+  `quickfix` and `file`/`window`/`yank` are off because Neovim's own `]q` and
+  vim's `:next`, `<C-w>w` and registers already do those, and `treesitter`
+  moved to `n` so `]t` stays Neovim's `:tnext`. Keys keep their letters.
 - **`performance.rtp.reset = false` in the lazy setup is load-bearing.** lazy
   wipes the runtimepath by default, which would take `~/.vim` with it and lose
   `hiko_color`, DirDiff and filter.vim.
