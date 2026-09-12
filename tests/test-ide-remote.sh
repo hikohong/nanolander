@@ -369,4 +369,18 @@ chk "and there is a fallback"     "$(grep -c 'vim.ui.select(labels' "$IDE")" "1"
 chk "the row markers need no patched font" \
   "$(grep -c "item.up and '↑  ' or '↓  '" "$IDE")" "1"
 
+# ,sp writes session.nvim and shada.nvim into whatever directory it is run in,
+# so working on this repository and saving a session drops both into its root.
+# They reached a commit once, through git add -A. Ignored now, and asserted
+# here because the next such commit would look just as ordinary.
+IGNORE="$REPO_ROOT/.gitignore"
+for f in session.nvim shada.nvim session.vim viminfo.vim; do
+  chk "$f is ignored" "$(grep -cx "$f" "$IGNORE")" "1"
+done
+chk "and none is tracked" \
+  "$(cd "$REPO_ROOT" && git ls-files session.nvim shada.nvim session.vim viminfo.vim | wc -l | tr -d ' ')" "0"
+# The pair init.vim actually writes has to be the pair that is ignored.
+chk "init.vim writes what is ignored" \
+  "$(grep -cE 'mksession! session\.nvim|wshada! shada\.nvim' "$REPO_ROOT/share/nvim/init.vim")" "2"
+
 finish
