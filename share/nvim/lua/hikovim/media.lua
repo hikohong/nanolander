@@ -63,15 +63,21 @@ function M.is_image(path)
   return matches(path, M.IMAGE)
 end
 
--- opens_externally — is this a file the editor previews but cannot really
--- show you?
---
--- Both answers are the same for the same reason. A preview is a still frame or
--- a picture painted on the terminal; watching a video and looking properly at
--- an image both belong to an application that does that, and the system already
--- knows which one it is.
-function M.opens_externally(path)
+-- is_media — a picture or a video: what the explorer pane previews in the pane
+-- above as the cursor lands on it.
+function M.is_media(path)
   return M.is_video(path) or M.is_image(path)
+end
+
+-- opens_externally — is <CR> on this file a hand-off to the system?
+--
+-- A video, yes: the editor pane can show one frame of it, and watching it
+-- belongs to a player. A picture, no longer: the pane above already shows a
+-- thumbnail as the cursor moves, so choosing a picture means looking at it
+-- properly, and the editor pane draws the full normalised copy. gx still hands
+-- either one to the system.
+function M.opens_externally(path)
+  return M.is_video(path)
 end
 
 return M

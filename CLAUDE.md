@@ -253,19 +253,29 @@ Rules that are easy to break:
   625 KB of sixel, so 24 fps is 14 MB/s of escape sequences, and a sixel image
   is painted on the terminal rather than owned by a buffer, so every statusline
   tick tears it. Hand a video to `open` or `mpv --vo=tct` instead.
-- **`<CR>` and a double click in the tree hand a video or a picture to the
-  system; a single click previews it.** Both keys mean "I have chosen this one",
-  a single click means "show me this one". Three things make it work and each
-  has already been got wrong once. It goes through `vim.ui.open`, so no
-  application is named twice — `bin/vlc-default` owns the video binding and the
-  system owns the picture one. The single click **must not move the cursor out
-  of the tree**, because a mouse mapping is looked up in the buffer that is
-  current when the key is processed, so a preview that jumps to the editor pane
-  leaves the second click of a double click reaching nothing. And a plain keymap
-  asking neo-tree for its state must use `get_state_for_window`:
-  `get_state('filesystem')` returns the state held *for the tab*, and this tree
-  is at `position = 'current'`, whose state is held per window, so that call
-  creates and returns an empty one and every click falls through to `<CR>`.
+- **Moving onto a picture or a video in the tree shows a thumbnail in the pane
+  above; choosing it is what reaches the editor pane.** `<CR>` and a double
+  click mean "I have chosen this one": a picture opens in the editor pane, a
+  video goes to the system through `vim.ui.open` (the editor can show one frame
+  of it). A single click, and plain cursor movement, mean "show me this one":
+  `peek.lua` draws a small cached thumbnail in the outline's pane. `gx` hands
+  any file to the system. Rules that are easy to break:
+  - the single click **must not move the cursor out of the tree**, because a
+    mouse mapping is looked up in the buffer current when the key is processed;
+    a preview that jumps panes leaves the second click of a double click
+    reaching nothing
+  - a plain keymap asking neo-tree for its state goes through `tree_state()`
+    (`get_state_for_window`); `get_state('filesystem')` returns the tab's state,
+    an empty one for this `position = 'current'` tree
+  - `buf_fits` lets the outline pane hold the `hikovim_peek` buffer. Without that
+    `enforce` evicts the thumbnail into the editor pane on every move
+  - `peek_hide` reopens aerial rather than restoring its old buffer: aerial
+    keeps one buffer per source buffer, and the editor may have moved on
+  - every thumbnail request carries a generation number; a result that lands
+    after the cursor moved on is dropped. Holding `j` through a folder must end
+    on the last file, not on whichever conversion finished last
+  - `peek.lua` reuses `picture.normalise` and `video.lua`'s `frame_argv` /
+    `probe_argv`; it keeps no command of its own
 - **The explorer pane's root-picker button has one owner for its icon.**
   `ide.lua` declares `M.ROOT_PICK_ICON`; `plugins.lua` reads it to render into
   the root name and `root_click` searches the rendered line for it again. A

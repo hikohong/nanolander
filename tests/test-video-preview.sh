@@ -166,7 +166,9 @@ LUA
   # thumbnail painted on the terminal, and looking at either properly belongs to
   # an application the system already knows about.
   chk "a video opens externally"    "$(got external_video=)" "external_video=true"
-  chk "so does a picture"           "$(got external_image=)" "external_image=true"
+  # A picture no longer does: <CR> opens it in the editor pane, and gx is the
+  # way to the system viewer for one.
+  chk "a picture opens here"        "$(got external_image=)" "external_image=false"
   chk "a text file does not"        "$(got external_text=)"  "external_text=false"
 fi
 

@@ -135,18 +135,42 @@ local function show_frame(buf, thumb, y)
   if made and img then pcall(function() img:render() end) end
 end
 
--- extract — one frame, a tenth of the way in so it is not the black frame most
--- files open on.
-local function extract(buf, path, duration, y)
-  if not have('ffmpeg') then return end
-  local at = 0
-  if duration and duration > 4 then at = duration * 0.1 end
-  local thumb = vim.fn.tempname() .. '.png'
-  vim.system({
+-- M.frame_at — where the frame is taken: a tenth of the way in, so it is not
+-- the black frame most files open on.
+function M.frame_at(duration)
+  if duration and duration > 4 then return duration * 0.1 end
+  return 0
+end
+
+-- M.frame_argv — the one ffmpeg command that takes that frame. Exported so the
+-- explorer pane's preview (peek.lua) takes the same frame rather than a copy of
+-- the command drifting away from this one.
+function M.frame_argv(path, at, out)
+  return {
     'ffmpeg', '-v', 'error', '-y',
     '-ss', tostring(at), '-i', path,
-    '-frames:v', '1', thumb,
-  }, { text = true }, function(res)
+    '-frames:v', '1', out,
+  }
+end
+
+-- M.probe_argv — the ffprobe query describe() reads. Exported for the same
+-- reason as frame_argv.
+function M.probe_argv(path)
+  return {
+    'ffprobe', '-v', 'error',
+    '-select_streams', 'v:0',
+    '-show_entries', 'stream=codec_name,width,height,r_frame_rate',
+    '-show_entries', 'format=duration,size,bit_rate',
+    '-of', 'default=noprint_wrappers=1',
+    path,
+  }
+end
+
+-- extract — one frame, into the preview under the text.
+local function extract(buf, path, duration, y)
+  if not have('ffmpeg') then return end
+  local thumb = vim.fn.tempname() .. '.png'
+  vim.system(M.frame_argv(path, M.frame_at(duration), thumb), { text = true }, function(res)
     if res.code ~= 0 then return end
     vim.schedule(function()
       if vim.fn.filereadable(thumb) == 1 then show_frame(buf, thumb, y) end
@@ -178,14 +202,7 @@ function M.preview(buf, path)
 
   set_lines(buf, { '  ' .. name, '  reading…' })
 
-  vim.system({
-    'ffprobe', '-v', 'error',
-    '-select_streams', 'v:0',
-    '-show_entries', 'stream=codec_name,width,height,r_frame_rate',
-    '-show_entries', 'format=duration,size,bit_rate',
-    '-of', 'default=noprint_wrappers=1',
-    path,
-  }, { text = true }, function(res)
+  vim.system(M.probe_argv(path), { text = true }, function(res)
     vim.schedule(function()
       if not vim.api.nvim_buf_is_valid(buf) then return end
       if res.code ~= 0 then
