@@ -303,6 +303,21 @@ Rules that are easy to break:
   is at position `current`, whose state is held per window. `tree_node` and
   `root_pick` both come through `tree_state`; a second caller asking in its own
   way is what the suite's "the state is asked per window" check catches.
+- **A Lua autocmd callback must not return a truthy value.** It deletes the
+  autocmd (`:h nvim_create_autocmd`). Both `BufReadCmd` callbacks ended in
+  `return true` as if it meant "handled", so the second video and the second
+  picture of each extension in a session opened as binary. Return nothing. And a
+  test that opens one file per Neovim cannot catch this — open several in one.
+- **`vim.system` callbacks run in a fast event context**, where `vim.fn` and
+  most of `vim.api` are refused. `schedule_wrap` any callback that goes on to
+  touch them; `picture.lua` died on `sha256()` there while its headless check,
+  which called the same code from the main loop, passed.
+- **Pictures are drawn from a normalised copy, never the original.**
+  `picture.lua` owns the read (image.nvim's `hijack_file_patterns` is `{}`) and
+  runs every picture through `convert_argv`: `[0]`, `-auto-orient`,
+  `-alpha remove` onto the editor background, `-resize 1600x1600>`. Each flag
+  answers a measured failure — see README's table. Keep them; add formats to
+  `media.IMAGE`, not special cases to the pipeline.
 - **`media.lua` owns both extension lists, and nothing else may keep a copy.**
   `video.lua`'s `BufReadCmd`, image.nvim's `hijack_file_patterns` and `ide.lua`'s
   tree handoff all read it. image.nvim exposes no accessor for what it was told

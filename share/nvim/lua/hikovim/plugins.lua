@@ -381,15 +381,12 @@ return {
       -- installs. The other processor wants a LuaRocks build of the magick
       -- rock, which is a build toolchain for no gain here.
       processor = 'magick_cli',
-      -- Opening one of these shows the picture rather than the bytes. This is
-      -- the setting the whole thing rests on.
-      --
-      -- The list lives in media.lua, because ide.lua needs the same one to
-      -- decide what <CR> and a double click hand to the system viewer. Asking
-      -- image.nvim was not an option: the module it returns has no accessor for
-      -- its own options, so a second copy here is how the editor would end up
-      -- previewing a format the tree refuses to open, or the reverse.
-      hijack_file_patterns = require('hikovim.media').IMAGE,
+      -- Pictures are not hijacked here any more; picture.lua's BufReadCmd
+      -- takes them and draws through this plugin's API instead. Handing the
+      -- original file straight to sixel is what drew a transparent PNG as a
+      -- blank, stacked every frame of a GIF, read an animated WebP as 8960×0
+      -- and spent a second re-encoding a 7000×5000 PNG. See picture.lua.
+      hijack_file_patterns = {},
       -- Four panes means windows are always next to each other, and a sixel
       -- image is painted on the terminal rather than owned by a buffer: without
       -- this it stays on screen over whatever moves in front of it.

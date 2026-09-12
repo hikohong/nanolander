@@ -4,19 +4,17 @@
 --
 --   * video.lua's BufReadCmd, which replaces the binary read of a video with a
 --     frame and the numbers
---   * image.nvim's hijack_file_patterns in plugins.lua, which does the same for
---     a picture
+--   * picture.lua's BufReadCmd, which does the same for a picture
 --   * ide.lua, where <CR> or a double click in the tree hands the file to the
 --     system's own viewer instead of previewing it
 --
 -- A second copy of either list is how a container ends up with a preview and no
--- viewer, or a viewer and no preview. image.nvim keeps its options to itself —
--- there is no accessor on the module it returns — so asking the plugin what it
--- hijacks was not available either.
+-- viewer, or a viewer and no preview.
 --
 -- Containers and file formats, not codecs: this is about what the file is
--- called. The image list is exactly what image.nvim is told to hijack, so the
--- editor previews and the system opens the same set.
+-- called. Pictures used to be exactly what image.nvim was told to hijack, and
+-- that list was seven names long; picture.lua decodes through ImageMagick, sips
+-- and ffmpeg, so the list is what one of those reads.
 
 local M = {}
 
@@ -27,7 +25,18 @@ M.VIDEO = {
 }
 
 M.IMAGE = {
-  '*.png', '*.jpg', '*.jpeg', '*.gif', '*.webp', '*.avif', '*.bmp',
+  -- the everyday ones
+  '*.png', '*.jpg', '*.jpeg', '*.jpe', '*.jfif', '*.gif', '*.webp', '*.avif',
+  '*.bmp', '*.apng',
+  -- what a phone takes
+  '*.heic', '*.heif',
+  -- design and graphics
+  '*.tif', '*.tiff', '*.svg', '*.ico', '*.icns', '*.psd', '*.tga', '*.qoi',
+  '*.dds', '*.hdr', '*.pcx', '*.xpm', '*.pbm', '*.pgm', '*.ppm', '*.pnm',
+  '*.jxl',
+  -- camera raw
+  '*.dng', '*.cr2', '*.cr3', '*.nef', '*.arw', '*.raf', '*.orf', '*.rw2',
+  '*.pef', '*.srw',
 }
 
 -- matches — does this name end in one of these globs?

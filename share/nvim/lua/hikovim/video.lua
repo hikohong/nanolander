@@ -205,13 +205,18 @@ function M.setup()
   vim.api.nvim_create_autocmd('BufReadCmd', {
     group = vim.api.nvim_create_augroup('hikovim_video', { clear = true }),
     pattern = media.VIDEO,
+    -- Returns nothing, deliberately. A Lua autocmd callback that returns a
+    -- truthy value is deleted (:h nvim_create_autocmd), and this one used to
+    -- end in `return true` in the belief that it meant "handled". So the first
+    -- video of each extension got its preview and removed the autocmd for that
+    -- extension, and the second .mp4 of a session opened as binary. Every
+    -- headless check opened one file per Neovim, which is why none saw it.
+    --
+    -- A file that cannot be read is left alone: there is nothing to preview,
+    -- and an empty buffer is what Neovim would have given it anyway.
     callback = function(ev)
-      -- BufReadCmd means Neovim hands the whole read over, so returning
-      -- without filling the buffer would leave it empty. Anything unreadable
-      -- falls back to letting Neovim do what it always did.
-      if vim.fn.filereadable(ev.file) ~= 1 then return false end
+      if vim.fn.filereadable(ev.file) ~= 1 then return end
       M.preview(ev.buf, vim.fn.fnamemodify(ev.file, ':p'))
-      return true
     end,
   })
 end
