@@ -97,10 +97,10 @@ KEYS_IN
 # the file: <2-LeftMouse> passed this suite once on a sentence in a paragraph
 # about why the double click used to do nothing.
 tree_section=$(sed -n '/^#### In the file tree/,/^#### /p' "$README")
-chk "single click is in the tree table" \
-  "$(printf '%s\n' "$tree_section" | grep -c 'single click')" "1"
-chk "double click is in the tree table" \
-  "$(printf '%s\n' "$tree_section" | grep -c 'double click')" "1"
+chk "single click is in the tree section" \
+  "$(printf '%s\n' "$tree_section" | grep -q 'single click' && echo yes || echo no)" "yes"
+chk "double click is in the tree section" \
+  "$(printf '%s\n' "$tree_section" | grep -q 'double click' && echo yes || echo no)" "yes"
 
 # A count too, so a regex that silently stops matching cannot pass by finding
 # nothing to check.

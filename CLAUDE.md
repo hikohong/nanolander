@@ -277,6 +277,27 @@ Rules that are easy to break:
   is neo-tree's and changes width; and `root_set` must make the tree window
   current before `:Neotree`, since the pane is at position `current` and the
   picker is a float, so otherwise the editor pane becomes a second tree.
+- **The root picker is a browser, and its key goes through neo-tree.** Rows are
+  `✓ use` / `↑ up` / `↓ down`; `<CR>` and a double click are fzf-lua `reload`
+  actions, so the window stays open while walking, and only the `✓` row or
+  `<C-y>` sets a root. Two things shipped broken in the first version and were
+  only caught by driving a real Neovim in tmux, not headless:
+  - its key was `<C-r>`, which is neo-tree's own `clear_clipboard`. neo-tree
+    resets buffer mappings on render, so a `FileType` binding for a key neo-tree
+    also binds is silently lost. Bind tree keys in
+    `filesystem.window.mappings`. And the check that let it ship asked only
+    whether *something* was mapped — compare `desc`, and normalise key names
+    through `keytrans` (`<C-r>` and `<C-R>` are the same key; the raw strings
+    are not, which is how a probe called a taken key free).
+  - the button vanished after first use. neo-tree truncates a line from the
+    right, and the explorer pane is a fifth of the screen, so a deep root
+    pushed the button off the end. `root_label` shortens the path from the
+    left to fit the real window width instead.
+- **Drive a real Neovim for anything interactive.** `tmux -L <socket> -f
+  /dev/null` gives an isolated server that ignores the user's tmux.conf (whose
+  `xterm-keys` changes what keys send); `send-keys` and `capture-pane` then
+  press real keys and read the real screen. Headless cannot show a fzf window,
+  a truncated line, or a key neo-tree has taken.
 - **`tree_state()` is the only place the per-window state is asked for.**
   `get_state('filesystem')` returns the state held for the tab, and this tree
   is at position `current`, whose state is held per window. `tree_node` and

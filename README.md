@@ -555,7 +555,7 @@ The root is the project directory, and nothing pins it there.
 | single click | show me this one. A video or a picture previews in the editor pane and the cursor stays in the tree; anything else behaves as `<CR>` |
 | `<BS>` | root up one level. Repeat it to walk out of the project entirely |
 | `.` | make the directory under the cursor the root |
-| `<C-r>`, or the `󰥨` button on the first line | choose the root from a floating list: every directory above the current one, then the directories inside it |
+| `O`, or the `󰥨` button on the first line | browse for a new root in a floating window, walking up and down as far as you like before choosing |
 | `/` | fuzzy-find a file under the current root |
 | `D` | fuzzy-find a directory |
 | `f` / `<C-x>` | filter on a string / clear the filter. Buffer-local, so it does not take `<C-x>` away from decrement anywhere else |
@@ -571,20 +571,32 @@ The root is the project directory, and nothing pins it there.
 | `q` | close the pane |
 | `?` | every mapping neo-tree has |
 
-**The button on the first line is the root picker.** The explorer pane's first line is the root itself — a folder icon, the path, and a `▲` that is neo-tree's sort direction for the name column, not a fold arrow. After it sits `󰥨`, and pressing it, or `<C-r>` anywhere in the tree, opens a floating list of everywhere the tree could be rooted instead:
+**The button on the first line is a folder browser.** The explorer pane's first line is the root itself — a folder icon, the path, and a `▲` that is neo-tree's sort direction for the name column, not a fold arrow. After it sits `󰥨`. Press it, or `O` anywhere in the tree, and a floating window opens on the folder the tree is showing:
 
 ```
-↑  ~/Coding
-↑  ~
-↑  /Users
-↑  /
-↓  ~/Coding/nanolander/bin
-↓  ~/Coding/nanolander/docs
+Tree root>
+▌ ✓  use this folder   ~/Coding/nanolander
+▌ ↑  ..   ~/Coding
+▌ ↓  bin/
+▌ ↓  docs/
+▌ ↓  share/
 ```
 
-Up and down in one prompt, because *somewhere else* is the question and which direction it is in is not. `↑` rows are the directories above the current root, nearest first; `↓` rows are the ones directly inside it. It is fzf-lua when that is installed, so the list is fuzzy-searchable, and `vim.ui.select` when it is not — layer 3 stays useful on a box whose first start had no network.
+**Choosing a row walks there and the list redraws in place — the window stays open.** `↓` goes into that folder, `↑ ..` goes up to its parent, and you keep going for as many levels as it takes. Nothing about the tree changes until you say so:
 
-`<BS>` and `.` still walk one step at a time; the picker is for going somewhere that is neither one step up nor a directory you can already see.
+| In the browser | Does |
+| --- | --- |
+| `<CR>` or double click on `↓` / `↑` | walk into that folder, or up to the parent |
+| `<CR>` on `✓  use this folder` | make the folder you are browsing the root, and close |
+| `<C-y>` | the same, from wherever the cursor is |
+| type | filter the rows of the folder you are in |
+| `<Esc>` | close without changing anything |
+
+After every step the filter is cleared and the cursor goes back to `✓`, so arriving somewhere and pressing `<CR>` again is how you say *here*. A single click only moves the cursor, so it can never walk you anywhere by accident. It is fzf-lua when that is installed; with only `vim.ui.select`, which cannot stay open, it reopens after each step instead — slower, and it still never sets a root until you choose `✓`.
+
+A deep root is shortened from the left to fit the pane — `…/share/nvim/lua  ▲  󰥨` — so the arrow and the button are never cut off the end of the line. The end of a path is the part that says where you are.
+
+The key is `O` because neo-tree's own `<C-r>` is `clear_clipboard`, and vim's `O`, which opens a line above, means nothing in a tree you cannot edit. `<BS>` and `.` still walk one step at a time without opening anything.
 
 To send the tree straight to a path you can already name, rather than picking from a list:
 

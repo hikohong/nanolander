@@ -323,7 +323,7 @@ PLUG="$REPO_ROOT/share/nvim/lua/hikovim/plugins.lua"
 # how the button appears and clicking it does nothing — the same failure
 # media.lua's single extension list exists to prevent.
 chk "the icon is declared once" "$(grep -c "^M.ROOT_PICK_ICON = " "$IDE")" "1"
-chk "and plugins.lua reads it"  "$(grep -c 'ide.ROOT_PICK_ICON' "$PLUG")" "1"
+chk "and plugins.lua goes through ide" "$(grep -c 'ide.root_label(' "$PLUG")" "1"
 chk "plugins.lua keeps no copy" "$(grep -c "ROOT_PICK_ICON = '" "$PLUG")" "0"
 
 # The icon has to be a Nerd Font glyph the shipped font actually carries, and
@@ -353,21 +353,55 @@ chk "and it only acts on line 1"           "$(grep -c 'pos.line ~= 1' "$IDE")" "
 chk "the tree window is restored first" \
   "$(awk '/^local function root_set/, /^end/' "$IDE" | grep -c 'nvim_set_current_win(win)')" "1"
 
-# Both directions in one list, and a keyboard way in.
-chk "candidates go up"   "$(grep -c 'up = true' "$IDE")" "1"
-chk "candidates go down" "$(grep -c 'up = false' "$IDE")" "1"
-chk "<C-r> is bound in the tree" "$(grep -c "'<C-r>', M.root_pick" "$IDE")" "1"
+# The picker is a folder browser. It used to be a flat list that closed on the
+# first Enter, so anything two levels away took a reopen per level. Choosing a
+# row walks into it and the list redraws in place; the root is set only from
+# the "use this folder" row or Ctrl-Y.
+chk "rows are use / up / down"        "$(grep -cE "^local ROW_(USE|UP|DOWN) " "$IDE")" "3"
+chk "walking is a reload, not a close" "$(grep -c 'reload = true' "$IDE")" "1"
+chk "Enter walks"                     "$(grep -c "\['enter'\] = walk" "$IDE")" "1"
+chk "a double click walks too"        "$(grep -c "\['double-click'\] = walk" "$IDE")" "1"
+chk "Ctrl-Y uses the folder browsed"  "$(grep -c "\['ctrl-y'\] = function() root_set(win, browsing)" "$IDE")" "1"
+# After every step the filter is cleared and the cursor goes back to "use this
+# folder": a query typed to find one subfolder would hide the next folder's
+# rows, and Enter again is how you say "here".
+chk "each step clears the query and goes to the top" "$(grep -c "postfix = 'clear-query+first'" "$IDE")" "1"
+# A reload action is one fzf does not close, so the use row closes it itself.
+chk "the use row closes the picker"   "$(grep -c 'close_fzf()' "$IDE")" "2"
 
-# fzf-lua when it is there, vim.ui.select when it is not: layer 3 has to stay
-# useful on a box whose first start had no network.
-chk "fzf-lua is preferred"        "$(grep -c 'fzf.fzf_exec(labels' "$IDE")" "1"
-chk "and there is a fallback"     "$(grep -c 'vim.ui.select(labels' "$IDE")" "1"
+# The path is never read back out of a row's text: up is the parent of the
+# folder being browsed, down is that folder joined with the name. A folder
+# literally named "..   x", or the ~ in a displayed path, cannot redirect it.
+chk "up is computed, not parsed"      "$(awk '/^local function browse_step/,/^end/' "$IDE" | grep -c 'vim.fs.dirname(dir)')" "1"
+chk "down is joined, not parsed"      "$(awk '/^local function browse_step/,/^end/' "$IDE" | grep -c "dir .. '/' .. name")" "1"
+chk "and must exist to be entered"    "$(awk '/^local function browse_step/,/^end/' "$IDE" | grep -c 'isdirectory(target)')" "1"
 
-# The row markers are plain Unicode, not Nerd Font glyphs: the prompt has to
-# read correctly on a terminal with no patched font, which is exactly the
-# machine someone is on when they have not run nanolander yet.
+# fzf-lua when it is there; vim.ui.select cannot stay open, so it reopens after
+# each step instead, and still never commits a root until "use this folder".
+chk "fzf-lua is preferred"            "$(grep -c 'fzf.fzf_exec(function(cb)' "$IDE")" "1"
+chk "the fallback reopens per step"   "$(grep -c 'vim.schedule(ask)' "$IDE")" "1"
+
+# Row markers are plain Unicode, not Nerd Font glyphs: the prompt has to read on
+# a terminal that has not had the font selected yet.
 chk "the row markers need no patched font" \
-  "$(grep -c "item.up and '↑  ' or '↓  '" "$IDE")" "1"
+  "$(grep -cE "^local ROW_(USE|UP|DOWN) *= '(✓|↑|↓)  '" "$IDE")" "3"
+
+# The key goes through neo-tree's own mappings. neo-tree resets buffer mappings
+# on render, so a FileType binding is lost whenever neo-tree binds the same key
+# — which is what happened to <C-r>, neo-tree's clear_clipboard, in the version
+# before this one. The check that let it ship asked only whether *something*
+# was mapped to <C-r>.
+chk "O is bound through neo-tree"     "$(grep -c "\['O'\] = root_pick" "$PLUG")" "1"
+chk "no FileType binding for it"      "$(grep -c "'<C-r>', M.root_pick" "$IDE")" "0"
+chk "and <C-r> is left to neo-tree"   "$(grep -cE "\['<C-r>'\] *=" "$PLUG")" "0"
+
+# The first line fits the pane. The button used to be appended after neo-tree's
+# text, and neo-tree truncates a line from the right, so in a 34-column pane a
+# root like ~/Coding/nanolander/share/nvim lost the arrow and the button — the
+# button vanished after its first use. The path gives way instead, from the left.
+chk "the root line is fitted to the pane" "$(grep -c '^function M.root_label' "$IDE")" "1"
+chk "it shortens from the left"            "$(awk '/^function M.root_label/,/^end/' "$IDE" | grep -c "name = '…' .. keep")" "1"
+chk "and measures the real window"         "$(awk '/^function M.root_label/,/^end/' "$IDE" | grep -c 'nvim_win_get_width(win)')" "1"
 
 # ,sp writes session.nvim and shada.nvim into whatever directory it is run in,
 # so working on this repository and saving a session drops both into its root.
