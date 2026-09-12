@@ -290,7 +290,21 @@ return {
               end,
               desc = 'open — a video or picture goes to the system',
             }
-            return { ['<CR>'] = choose, ['<2-LeftMouse>'] = choose }
+            -- The root picker, for the keyboard; the mouse has the button on
+            -- the first line. Here rather than in a FileType autocmd, because
+            -- neo-tree resets its buffer mappings on render: a key bound from
+            -- outside is lost the moment neo-tree binds the same one, which is
+            -- what happened to the <C-r> this used to be — neo-tree's own
+            -- clear_clipboard. O is unused by neo-tree, and vim's own O opens a
+            -- line above, which a nomodifiable tree has no use for.
+            local root_pick = {
+              function()
+                local ok, ide = pcall(require, 'hikovim.ide')
+                if ok then ide.root_pick() end
+              end,
+              desc = 'choose the tree root, walking up or down',
+            }
+            return { ['<CR>'] = choose, ['<2-LeftMouse>'] = choose, ['O'] = root_pick }
           end)(),
         },
         -- oil is the netrw replacement. Two plugins claiming it is how you
@@ -309,7 +323,9 @@ return {
             local result = common.name(config, node, state)
             local ok, ide = pcall(require, 'hikovim.ide')
             if ok and node:get_depth() == 1 then
-              result.text = result.text .. '  ' .. ide.ROOT_PICK_ICON
+              -- ide.root_label fits the line to the pane, shortening the path
+              -- from the left so the button is never truncated off the end.
+              result.text = ide.root_label(result.text, node.name, state.winid)
             end
             return result
           end,

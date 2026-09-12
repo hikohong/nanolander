@@ -710,34 +710,66 @@ end
 -- processed: the first click of a double click used to open the preview *and*
 -- jump to the editor pane, where <2-LeftMouse> is not mapped, so the second
 -- click reached nothing and the double click did nothing at all.
--- root_candidates — where the explorer pane could be re-rooted to, as one
--- list: every directory above the current root, then the directories directly
--- inside it. Up and down in one prompt, because "somewhere else" is the
--- question, not which direction it is in.
-local function root_candidates(root)
-  local out = {}
-  -- Upwards, nearest first, stopping at the filesystem root. vim.fs.parents
-  -- ends on its own; the guard is for a path it cannot walk.
-  local seen, dir = 0, root
-  while seen < 64 do
-    local parent = vim.fs.dirname(dir)
-    if not parent or parent == dir then break end
-    out[#out + 1] = { path = parent, up = true }
-    dir = parent
-    seen = seen + 1
+-- The root picker is a folder browser, not a one-shot list. Choosing a row
+-- walks into it and the list redraws in place; the root is only set when you
+-- say so. Picking the destination from a flat list of ancestors and children
+-- closed on the first Enter, so reaching anything two levels away took a
+-- reopen per level.
+--
+-- Three kinds of row, told apart by their first characters. Plain Unicode on
+-- purpose: the prompt has to read correctly on a terminal that has not had the
+-- Nerd Font selected yet.
+local ROW_USE  = '✓  '   -- set the root to the folder being browsed, and close
+local ROW_UP   = '↑  '   -- browse the parent
+local ROW_DOWN = '↓  '   -- browse this subfolder
+
+-- browse_rows — what the picker shows while browsing `dir`.
+--
+-- The "use this folder" row comes first so it is where the cursor lands after
+-- every step: arriving somewhere and pressing Enter again is how you say
+-- "here". Subfolders are listed by name only, since the header already says
+-- where you are and a full path per row buries the part that differs.
+local function browse_rows(dir)
+  local rows = { ROW_USE .. 'use this folder   ' .. vim.fn.fnamemodify(dir, ':~') }
+  local parent = vim.fs.dirname(dir)
+  if parent and parent ~= dir then
+    rows[#rows + 1] = ROW_UP .. '..   ' .. vim.fn.fnamemodify(parent, ':~')
   end
-  -- Downwards, one level, sorted. fs_dir rather than a glob so a name with a
-  -- bracket or a space in it cannot change what is listed.
+  -- fs.dir rather than a glob, so a bracket or a space in a name cannot change
+  -- what is listed.
   local names = {}
-  for name, kind in vim.fs.dir(root) do
+  for name, kind in vim.fs.dir(dir) do
     if kind == 'directory' then names[#names + 1] = name end
   end
   table.sort(names)
   for _, name in ipairs(names) do
-    out[#out + 1] = { path = root .. '/' .. name, up = false }
+    rows[#rows + 1] = ROW_DOWN .. name .. '/'
   end
-  return out
+  return rows
 end
+
+-- browse_step — where a chosen row leads, given the folder being browsed.
+--
+-- Returns the next folder to browse, or `true` for "use this one". The path is
+-- never read back out of the row text: an up row is the parent of `dir`, and a
+-- down row is `dir` joined with the name, so a `~` in the display or a folder
+-- literally named "..   x" cannot send the browser somewhere else.
+local function browse_step(dir, row)
+  if type(row) ~= 'string' then return nil end
+  if row:sub(1, #ROW_USE) == ROW_USE then return true end
+  if row:sub(1, #ROW_UP) == ROW_UP then
+    local parent = vim.fs.dirname(dir)
+    return (parent and parent ~= dir) and parent or nil
+  end
+  if row:sub(1, #ROW_DOWN) == ROW_DOWN then
+    local name = row:sub(#ROW_DOWN + 1):gsub('/$', '')
+    if name == '' then return nil end
+    local target = dir .. '/' .. name
+    return vim.fn.isdirectory(target) == 1 and target or nil
+  end
+  return nil
+end
+M._browse_rows, M._browse_step = browse_rows, browse_step
 
 -- root_set — re-root the explorer pane.
 --
@@ -757,51 +789,128 @@ local function root_set(win, path)
   pcall(command.execute, { action = 'focus', source = 'filesystem', dir = path })
 end
 
--- M.root_pick — the floating chooser, on the icon and on <C-r> in the tree.
+-- close_fzf — shut the picker from inside one of its own reload actions.
 --
--- fzf-lua when it is there, because that is what every other picker in this
--- configuration uses and it brings fuzzy matching to a list that can be long.
--- vim.ui.select otherwise: layer 3 has to stay useful on a box whose first
--- start had no network, the same reason pick() in keys.lua falls back.
+-- A reload action is exactly one that fzf does not close, so the "use this
+-- folder" row has to close it itself. Deferred, because the action is still
+-- running inside fzf's execute when this is called.
+local function close_fzf()
+  vim.schedule(function()
+    local ok, win = pcall(require, 'fzf-lua.win')
+    local self = ok and win.__SELF and win.__SELF()
+    if self then pcall(self.close, self) end
+  end)
+end
+
+-- M.root_pick — the floating folder browser, on the icon and on O in the tree.
+--
+-- fzf-lua when it is there: the list redraws in place through a reload action,
+-- so walking five folders deep is five Enters in one window. vim.ui.select
+-- otherwise, which cannot stay open, so it reopens after each step instead —
+-- slower, and still never commits a root until "use this folder" is chosen.
+-- Layer 3 has to stay useful on a box whose first start had no network.
 function M.root_pick()
   local win = vim.api.nvim_get_current_win()
   local state_for_window = tree_state()
-  local root = (state_for_window and state_for_window.path) or vim.uv.cwd()
-  if not root then return end
-
-  local items = root_candidates(root)
-  if #items == 0 then
-    vim.notify('[nanolander] nowhere to go from ' .. root, vim.log.levels.INFO)
-    return
-  end
-
-  -- What the row says. The arrow is the whole point of showing both
-  -- directions in one list, and both are plain Unicode rather than Nerd Font
-  -- glyphs, so the prompt reads correctly on a terminal with no patched font.
-  local labels, by_label = {}, {}
-  for _, item in ipairs(items) do
-    local label = (item.up and '↑  ' or '↓  ') .. vim.fn.fnamemodify(item.path, ':~')
-    labels[#labels + 1] = label
-    by_label[label] = item.path
-  end
+  local start = (state_for_window and state_for_window.path) or vim.uv.cwd()
+  if not start then return end
+  local browsing = start
 
   local has_fzf, fzf = pcall(require, 'fzf-lua')
   if has_fzf and fzf.fzf_exec then
-    fzf.fzf_exec(labels, {
+    local function step(selected)
+      local nxt = browse_step(browsing, selected and selected[1])
+      if nxt == true then
+        root_set(win, browsing)
+        close_fzf()
+      elseif nxt then
+        browsing = nxt
+      end
+    end
+    -- Enter and a double click both mean "go there"; a single click only moves
+    -- the cursor, so it can never walk you somewhere by accident. The query is
+    -- cleared and the cursor put back on "use this folder" after every step:
+    -- a filter typed to find one subfolder would otherwise hide the rows of the
+    -- next folder, and leave the cursor on some arbitrary row of it.
+    local walk = { fn = step, reload = true, postfix = 'clear-query+first' }
+    fzf.fzf_exec(function(cb)
+      for _, row in ipairs(browse_rows(browsing)) do cb(row) end
+      cb()
+    end, {
       prompt = 'Tree root> ',
-      winopts = { height = 0.55, width = 0.65 },
+      winopts = { height = 0.6, width = 0.6, title = ' Choose the tree root ' },
+      fzf_opts = {
+        ['--no-sort'] = true,
+        ['--header'] = 'Enter / double-click: open   ·   ✓ row or Ctrl-Y: use as root   ·   Esc: cancel',
+        ['--header-first'] = true,
+      },
       actions = {
-        ['default'] = function(selected)
-          local pick = selected and selected[1]
-          if pick and by_label[pick] then root_set(win, by_label[pick]) end
-        end,
+        ['enter'] = walk,
+        ['double-click'] = walk,
+        ['ctrl-y'] = function() root_set(win, browsing) end,
       },
     })
     return
   end
-  vim.ui.select(labels, { prompt = 'Tree root' }, function(choice)
-    if choice and by_label[choice] then root_set(win, by_label[choice]) end
-  end)
+
+  local function ask()
+    vim.ui.select(browse_rows(browsing), {
+      prompt = 'Tree root: ' .. vim.fn.fnamemodify(browsing, ':~'),
+    }, function(choice)
+      local nxt = browse_step(browsing, choice)
+      if nxt == true then
+        root_set(win, browsing)
+      elseif nxt then
+        browsing = nxt
+        vim.schedule(ask)
+      end
+    end)
+  end
+  ask()
+end
+
+-- M.root_label — the explorer pane's first line: the root, neo-tree's sort
+-- arrow, and the picker button, fitted to the pane.
+--
+-- The button used to be appended to whatever neo-tree produced, and neo-tree's
+-- container truncates a line that does not fit from the right. The explorer
+-- pane is a fifth of the screen, so a root a few folders deep —
+-- ~/Coding/nanolander/share/nvim in a 34-column pane — lost the sort arrow and
+-- the button off the end, and the button vanished after its first use. So the
+-- path gives way instead, from the left: the end of a path is the part that
+-- says where you are.
+--
+-- `text` is what neo-tree's own name component returned, `name` the root as
+-- neo-tree names it. Anything neo-tree appended after the name — the arrow
+-- today — is kept exactly as it was; only the name is shortened.
+function M.root_label(text, name, win)
+  local suffix = ''
+  if type(name) == 'string' and text:sub(1, #name) == name then
+    suffix = text:sub(#name + 1)
+  else
+    name = text
+  end
+  local button = '  ' .. M.ROOT_PICK_ICON
+  local width = (win and vim.api.nvim_win_is_valid(win)) and vim.api.nvim_win_get_width(win) or 80
+  -- Three cells for the indent and the folder icon neo-tree draws before the
+  -- name, and one spare so the button never sits in the last column, where a
+  -- terminal can wrap or clip it.
+  local budget = width - 4 - vim.fn.strdisplaywidth(suffix) - vim.fn.strdisplaywidth(button)
+  if budget < 4 then budget = 4 end
+  if vim.fn.strdisplaywidth(name) > budget then
+    local keep = name
+    while vim.fn.strdisplaywidth('…' .. keep) > budget and vim.fn.strchars(keep) > 1 do
+      keep = vim.fn.strcharpart(keep, 1)
+    end
+    -- Start at a separator when there is one to start at, so it reads …/share/nvim
+    -- rather than …are/nvim.
+    local slash = keep:find('/', 2, true)
+    if slash and vim.fn.strdisplaywidth('…' .. keep:sub(slash)) <= budget then
+      keep = keep:sub(slash)
+    end
+    name = '…' .. keep
+  end
+  return name .. suffix .. button
 end
 
 -- root_click — was this click on the picker button?
@@ -1251,21 +1360,6 @@ function M.setup()
       end,
     })
   end
-
-  -- The root picker, for people not reaching for the mouse. Buffer-local, and
-  -- <C-r> is redo — which a nomodifiable tree buffer has no use for, so this
-  -- takes nothing away. neo-tree's own <BS> and . still walk up and down one
-  -- step at a time.
-  vim.api.nvim_create_autocmd('FileType', {
-    group = group,
-    pattern = 'neo-tree',
-    callback = function(ev)
-      vim.keymap.set('n', '<C-r>', M.root_pick, {
-        buffer = ev.buf, silent = true, nowait = true,
-        desc = 'Choose the tree root, up or down',
-      })
-    end,
-  })
 
   -- <CR> and double click in the outline obey the one-editor-window rule. The
   -- explorer pane needs no equivalent; see the note above outline_select.
