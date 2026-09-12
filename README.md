@@ -394,6 +394,8 @@ Each replacement disables its predecessor in Neovim only, by setting the plugin'
 
 `DirDiff.vim` and `filter.vim` have no replacement, so they keep loading.
 
+Four entries replace nothing, because vim here never had them: `nvim-treesitter`, the language server client, `blink.cmp` for completion, and the editing plugins behind `<C-a>` and the `[`/`]` motions. The one commented-out attempt in `~/.vimrc` is OmniCppComplete — see [Completion and predictive text](#completion-and-predictive-text) for why that decision was reversed.
+
 ### Images in the editor pane
 
 Click a `.png` in the tree and the picture appears where the file contents would, the way yazi previews one. `image.nvim` does the drawing, using the ImageMagick nanolander already installs.
@@ -471,6 +473,62 @@ Without a language server the `<C-\>` keys degrade to a ripgrep word search, whi
 | `,fb` | switch buffer |
 | `,fd` | diagnostics in this file |
 
+#### Completion and predictive text
+
+`blink.cmp` shows the menu as you type and previews the top match as grey text ahead of the cursor. Every key here falls back to whatever vim does when the menu is closed, so none of them is taken away from you.
+
+| Key | Does |
+| --- | --- |
+| — | the menu appears as you type; the first match is preselected and previewed in grey |
+| `<C-y>` | accept the selected match |
+| `<C-n>` / `<C-p>` | next / previous match |
+| `<C-space>` | show the menu, then its documentation |
+| `<C-e>` | dismiss the menu |
+| `<C-b>` / `<C-f>` | scroll the documentation window |
+| `<C-s>` | signature help, on and off |
+| `<C-x><C-o>` | vim's own omni-completion, untouched |
+
+Sources, in order: the language server, paths, snippets, then words from open buffers. `<C-k>` is left alone deliberately — blink's default preset puts signature help there, and it is vim's digraph key, so this moves it to `<C-s>` instead.
+
+The matcher is Rust and comes prebuilt with the pinned release. Where that binary cannot run, blink falls back to a Lua matcher silently: a warning on every start would land in `:messages`, which is what the headless load check asserts is empty.
+
+**Copilot is the other half, and it is the one thing here that cannot simply land.** It needs Node, which is not in the catalog, a GitHub Copilot subscription, and `:Copilot auth` once per machine. So only its automatic trigger is gated: a machine with no credentials never loads it, never fetches its language server and never says anything, and you get blink's menu on its own.
+
+| Key | Does |
+| --- | --- |
+| `<C-l>` | accept the whole suggestion |
+| `<M-l>` | accept one word of it |
+| `<M-S-l>` | accept one line of it |
+| `<M-]>` / `<M-[>` | next / previous suggestion |
+| `<C-]>` | dismiss it |
+
+`:Copilot auth` signs in, `:Copilot status` says what is wrong. Both work whether or not the credentials are there — the command is what loads the plugin — and suggestions start appearing on the next start.
+
+#### Editing, from the coding plugins
+
+| Key or command | Does |
+| --- | --- |
+| `<C-a>` / `<C-x>` | increment / decrement. vim knows integers; this also does hex, a `YYYY/MM/DD` date, a bool, a semver, and `let`/`const` |
+| `:IncRename` | rename with every call site changing as you type it, rather than in one go like `grn` |
+| `]d` / `[d` | next / previous diagnostic |
+| `]i` / `[i` | next / previous indent level |
+| `]j` / `[j` | forward / back along the jumplist |
+| `]n` / `[n` | next / previous treesitter node |
+| `]b` / `[b` | next / previous buffer |
+| `]l` / `[l` | next / previous location-list entry |
+| `]u` / `[u` | forward / back through undo states |
+| `]x` / `[x` | next / previous merge conflict |
+| `]o` / `[o` | next / previous file from the oldfiles list |
+
+Those bracket motions are `mini.bracketed`'s, and four of its targets are switched off here because something already owns the letter:
+
+| Letter | Left to |
+| --- | --- |
+| `c` | the git hunks in the table above, and vimdiff's own change motion inside `nvim -d`. mini.bracketed would have used it for a comment block |
+| `q` | Neovim's own `]q` / `[q`, which are `:cnext` / `:cprev` |
+| `t` | Neovim's own `]t` / `[t`, which are `:tnext` / `:tprev`. Treesitter nodes moved to `n` for this reason |
+| `f`, `w`, `y` | nothing — unmapped, because `:next`, `<C-w>w` and the registers are already how you do those |
+
 #### The layout and its panes
 
 | Key or command | Does |
@@ -499,7 +557,7 @@ The root is the project directory, and nothing pins it there.
 | `.` | make the directory under the cursor the root |
 | `/` | fuzzy-find a file under the current root |
 | `D` | fuzzy-find a directory |
-| `f` / `<C-x>` | filter on a string / clear the filter |
+| `f` / `<C-x>` | filter on a string / clear the filter. Buffer-local, so it does not take `<C-x>` away from decrement anywhere else |
 | `S` / `s` / `t` | open in a split, a vertical split, a new tab |
 | `a` / `A` | new file / new directory |
 | `r` / `b` | rename / rename the basename only |
@@ -566,9 +624,9 @@ Neovim binds these itself the moment a client attaches, so nothing here rebinds 
 | `grr` | references |
 | `gri` | implementation |
 | `gO` | symbols in this document |
-| `<C-x><C-o>` | completion, on demand rather than as you type |
+| `<C-x><C-o>` | vim's omni-completion, still on the key it has always been on |
 
-Completion is deliberately not automatic: `~/.vimrc` turned OmniCppComplete's popup off because it interfered with normal typing, and that preference still stands. `./bin/nvim-land` reports which servers this machine can already run.
+The language server is also blink.cmp's first source, so its candidates arrive in the menu as you type — see [Completion and predictive text](#completion-and-predictive-text). `./bin/nvim-land` reports which servers this machine can already run.
 
 #### Unchanged from `~/.vimrc`
 
@@ -622,7 +680,7 @@ The layout sets `mouse=a`, since `mouse=n` cannot click out of a terminal — te
 - **Neovim has no `--remote-wait`.** The wait commands are Vim's; Neovim answers `E5600: Wait commands not yet implemented in Nvim`. So the shell function uses plain `--remote` and does not block. It does not need to: a shell function is invisible to the `sh -c` that git runs `$EDITOR` through, so it can only ever affect a command you type. Blocking is flatten.nvim's job, over RPC.
 - **flatten's window handler returns `bufnr, winnr`** — buffer first. Its README documents the pair the other way round, and returning a window id first makes flatten treat it as a buffer number and throw from its `BufEnter` handler on every open. `plugins.lua` says so where it matters.
 - **`,sp` and `,lp` write `session.nvim` and `shada.nvim`**, not `session.vim` and `viminfo.vim`. Neovim's info file is msgpack shada and vim's is text, so sharing one pair would leave whichever editor wrote last unreadable to the other.
-- **Completion is on demand** (`<C-x><C-o>`), not as you type, matching the reason `~/.vimrc` turned OmniCppComplete's popup off.
+- **Completion is automatic now, and it was not before.** `~/.vimrc` has OmniCppComplete's block commented out with a note that its popup interfered with typing, and for years the answer here was that completion stays on `<C-x><C-o>`. blink.cmp is why that changed: it ranks by a real fuzzy match rather than the first tag it finds, and every key that drives the menu falls back to vim's own when the menu is closed, so nothing that used to work stopped. `<C-x><C-o>` is still there. To go back, delete the `saghen/blink.cmp` entry from `lua/hikovim/plugins.lua`.
 - **The layout stays out of the way where it would be wrong.** It does not start for a `$EDITOR` call from git, `nvim -d`, piped stdin, or a session that restored its own windows.
 - **A running Neovim keeps its old configuration** until you restart it. That is harmless, so unlike `bin/iterm-tune` this script does not refuse to write while the program is open.
 
@@ -995,6 +1053,18 @@ Do not trust `duti -x mp4` to check the result: it resolves by application name 
 Writing needs [`duti`](https://github.com/moretension/duti), which is not part of a base macOS; `--apply` installs it through Homebrew when it is missing and says so. Reporting needs nothing but PlistBuddy.
 
 ## What changed in this release
+
+### Completion as you type, and predictive text (new)
+
+`blink.cmp` is in the pinned set, so a landed box now has a completion menu that appears as you type and previews the top match as grey text ahead of the cursor. Candidates come from the language server, paths, snippets and the words in open buffers, ranked by a real fuzzy match. Every key that drives the menu falls back to whatever vim does when the menu is closed, so nothing that used to work stopped — `<C-x><C-o>` included.
+
+This reverses a decision the configuration had been carrying: `~/.vimrc` has OmniCppComplete's block commented out with a note that its popup interfered with typing, and the answer here had been that completion stays on demand. It is worth saying which part changed — not the objection, which was about a popup that stole keystrokes, but the tooling that caused it.
+
+Four editing plugins came with it. `<C-a>` and `<C-x>` now increment a hex number, a date, a bool, a semver and `let`/`const`, not only an integer; `:IncRename` renames with every call site changing as you type; and `mini.bracketed` adds `[` and `]` motions for a diagnostic, an indent level, the jumplist and six more. Four of its targets are off because something already owns the letter — `]c` stays the git hunks, `]q` and `]t` stay Neovim's own.
+
+Copilot's inline suggestion is here too, and it is the one entry that cannot simply land: it needs Node, which is not in the catalog, a subscription, and `:Copilot auth` once per machine. Only its automatic trigger is gated, so a box with no credentials never loads it, never fetches its language server and never says anything — `lazy` refuses to load a spec whose `cond` is false even through its own command, so gating the plugin itself would have taken `:Copilot auth` away from the one machine that needs to run it.
+
+The pinned set grew from 14 to 19. See [Completion and predictive text](#completion-and-predictive-text) for every key.
 
 ### VLC opens video files, not QuickTime (new)
 
