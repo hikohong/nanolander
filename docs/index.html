@@ -594,6 +594,23 @@ footer{padding:36px 0 60px;color:var(--faint);font-size:13.5px;font-family:var(-
     </table>
     <p class="note">Everything else — <code>,sp</code>, <code>,lp</code>, <code>,ic</code>, <code>,f</code>, <code>&lt;space&gt;</code>, <code>&lt;C-h&gt;</code>, <code>&lt;C-Z&gt;</code> — comes straight from <code>~/.vimrc</code> and behaves as it always did.</p>
 
+    <h3>Keys in the layout</h3>
+    <p class="sub">The panes are ordinary windows, so <code>&lt;C-w&gt;</code> and <code>hjkl</code> move between them — from the shell pane too, where <code>&lt;C-w&gt;</code> leaves terminal mode first. Added on keys <code>~/.vimrc</code> leaves free.</p>
+    <table>
+      <thead><tr><th>Key</th><th>Does</th></tr></thead>
+      <tbody>
+        <tr><td><code>&lt;F4&gt;</code></td><td>the layout, on and off — <code>:IDE</code> and <code>:IDEClose</code> do the same</td></tr>
+        <tr><td><code>&lt;F6&gt;</code> <code>&lt;F7&gt;</code></td><td>the terminal pane and the next shell in it; one more shell</td></tr>
+        <tr><td><code>,gb</code> <code>,gp</code></td><td>blame this line; preview this hunk</td></tr>
+        <tr><td><code>]c</code> <code>[c</code></td><td>next and previous git hunk — inside <code>nvim -d</code> they stay vimdiff's</td></tr>
+        <tr><td><code>,ff</code> <code>,fg</code> <code>,fb</code> <code>,fd</code></td><td>find a file, live grep, switch buffer, diagnostics here</td></tr>
+        <tr><td><code>&lt;CR&gt;</code>, double click</td><td>in the tree: a video or picture goes to the system, any other file to the editor pane, a directory expands. In the outline: jump to the symbol</td></tr>
+        <tr><td>single click</td><td>preview it, cursor stays in the tree</td></tr>
+        <tr><td><code>&lt;BS&gt;</code> <code>.</code></td><td>in the tree: root up one level, repeatable past the project; or make this directory the root</td></tr>
+      </tbody>
+    </table>
+    <p class="note">The tree's root is not pinned to the project: <code>&lt;BS&gt;</code> walks out of it, and <code>:Neotree dir=~/elsewhere</code> jumps straight there — run from the tree pane, since the pane is neo-tree at <code>position = 'current'</code> and the command renders into whichever window has focus. For one look outside without moving the tree, <code>&lt;F5&gt;</code> opens oil in the editor pane instead. README has the complete reference, pane by pane, including what each plugin's own keys do.</p>
+
     <h3>Worth knowing</h3>
     <ul class="plain">
       <li><b>Neovim removed cscope</b> — <code>has('cscope')</code> is 0, so the cscope block in <code>~/.vimrc</code> never runs there. The keys above are the replacement; for real cscope, use vim.</li>

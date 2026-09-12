@@ -26,6 +26,7 @@ adds them up and exits non-zero if anything failed.
 | `test-vlc-default.sh` | the content-type table, and the LaunchServices parser against a recorded dump |
 | `test-install-loop.sh` | `install_all_tools` reaches every catalog entry even when a tool drains stdin |
 | `test-payload-pick.sh` | which file inside an archive gets installed, and whether a version query proves anything |
+| `test-readme-keys.sh` | every mapping and command the Neovim configuration defines is written down in README.md's keys reference |
 
 Eleven of these exist because of a way asset selection, a write, or a run
 goes wrong:
@@ -158,6 +159,11 @@ internals are reachable.
   be fed a recorded dump on any platform — the brace-depth rule is the part
   that breaks, since each handler carries a nested dictionary with an
   `LSHandlerRoleAll` of its own that is always `-`.
+- **The plugin defaults README's keys reference also lists** — neo-tree's
+  `<BS>`, oil's `-`, aerial's `{`. Those live upstream, pinned by
+  `share/nvim/lazy-lock.json`, so checking them would need the plugins
+  installed. `test-readme-keys.sh` asserts only what this configuration itself
+  defines; the inherited half was read off the pinned plugins by hand.
 - **Amazon Linux 2 and 2023**: yum and dnf.
 - **The live GitHub API**: asset names and archive layouts are asserted
   against fixtures shaped like the real ones, not against the real releases.
