@@ -86,6 +86,25 @@ $RECYCLE.BIN/
 # live. An EC2 instance with a shared home directory produces these.
 .nfs*
 
+# ---------------------------------------------------------------------------
+# This configuration's own editor state
+# ---------------------------------------------------------------------------
+
+# What ,sp writes, per directory: share/nvim/init.vim runs `mksession!
+# session.nvim` and `wshada! shada.nvim` there, and ,lp reads them back. They
+# are named for the directory they sit in, so saving a session while working on
+# this repository drops both into its root — window layout, open buffers,
+# jumplist and registers, all of one person's afternoon.
+#
+# Neovim's names on purpose: vim writes session.vim and viminfo.vim for the
+# same two keys, and sharing one pair would leave whichever editor wrote last
+# unreadable to the other. Both spellings are ignored so a clone used from
+# either editor stays clean.
+session.nvim
+shada.nvim
+session.vim
+viminfo.vim
+
 # Not ignored on purpose: share/nvim/lazy-lock.json is shipped, because it is
 # what pins the plugin set. Regenerate it with ./bin/nvim-land --freeze and
 # commit the result.
