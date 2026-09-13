@@ -276,6 +276,18 @@ Rules that are easy to break:
     on the last file, not on whichever conversion finished last
   - `peek.lua` reuses `picture.normalise` and `video.lua`'s `frame_argv` /
     `probe_argv`; it keeps no command of its own
+  - **the thumbnail must not go through image.nvim.** Its sixel backend turns
+    any render or clear into a `:mode` full-screen clear plus a repaint of every
+    image, so the editor pane's picture was repainted on every tree move.
+    `peek.lua` sends its own sixel, erases with spaces in the editor background
+    over the exact rectangle (Neovim will not rewrite unchanged cells, even for
+    `nvim__redraw` with `valid = false`), and repaints after image.nvim's
+    flushing calls — hooked on `require('image/backends/sixel')`, the slash
+    spelling image.nvim itself loads
+  - to check a change like this, count what the terminal receives: a Python
+    pty with a pixel size set, capturing Neovim's output and splitting it at
+    markers written with `chansend(v:stderr, …)`. tmux cannot show sixel, and a
+    detached tmux never paints at all
 - **The explorer pane's root-picker button has one owner for its icon.**
   `ide.lua` declares `M.ROOT_PICK_ICON`; `plugins.lua` reads it to render into
   the root name and `root_click` searches the rendered line for it again. A
