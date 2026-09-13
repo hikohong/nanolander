@@ -347,7 +347,30 @@ chk "a video frame is video.lua's"     "$(grep -c 'video.frame_argv(path, video.
 chk "and peek keeps no ffmpeg argv"    "$(grep -c "'-frames:v'" "$PEEK")" "0"
 # The callbacks go on to use vim.fn, so they run on the main loop, and none of
 # the autocmd callbacks returns a truthy value.
-chk "peek's system callbacks are scheduled" "$(grep -c 'vim.schedule_wrap(function' "$PEEK")" "4"
+chk "every vim.system in peek is scheduled" \
+  "$(grep -c 'vim.system(' "$PEEK")" "$(grep -c 'vim.schedule_wrap(function' "$PEEK")"
+
+# The thumbnail paints its own sixel. image.nvim's sixel backend answers any
+# image change with a :mode full-screen clear and a repaint of every image, so a
+# thumbnail drawn through it cleared the screen and repainted the picture in the
+# editor pane on every move in the tree — measured from the terminal's byte
+# stream: one to two clears and a repaint of that picture per move, even onto a
+# text file. Afterwards: no clears, no repaint, one small sixel.
+chk "peek draws nothing through image.nvim" \
+  "$(grep -cE "require\('image'\)|from_file|:render\(\)" "$PEEK")" "0"
+chk "and never clears the screen itself" \
+  "$(( $(grep -c "'mode'" "$PEEK") + $(grep -cF '[2J' "$PEEK") ))" "0"
+# Neovim does not rewrite unchanged cells even for nvim__redraw valid=false, so
+# taking a thumbnail off means spaces in the editor background over exactly the
+# rectangle it covered.
+chk "a thumbnail is erased by its rectangle" "$(grep -c '^function M.erase' "$PEEK")" "1"
+chk "in the editor's background"             "$(grep -c "48;2;%d;%d;%dm" "$PEEK")" "1"
+# When image.nvim does clear the screen, the thumbnail is painted again. The hook
+# is on the module image.nvim loads — the slash spelling; the dotted one is a
+# different cache entry — and a shallow clear, which never flushes, is ignored.
+chk "the repaint hook is on image.nvim's own module" \
+  "$(grep -c "require, 'image/backends/sixel'" "$PEEK")" "1"
+chk "a shallow clear does not repaint" "$(grep -c 'if last and not shallow then' "$PEEK")" "1"
 chk "focus is restored, not moved"  "$(grep -c 'if not focus and alive(here)' "$IDE")" "1"
 # get_state('filesystem') returns the state held for the *tab*, and this tree is
 # at position 'current', whose state is held per window. That call answered a
