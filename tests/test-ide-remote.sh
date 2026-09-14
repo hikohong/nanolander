@@ -371,6 +371,38 @@ chk "in the editor's background"             "$(grep -c "48;2;%d;%d;%dm" "$PEEK"
 chk "the repaint hook is on image.nvim's own module" \
   "$(grep -c "require, 'image/backends/sixel'" "$PEEK")" "1"
 chk "a shallow clear does not repaint" "$(grep -c 'if last and not shallow then' "$PEEK")" "1"
+
+# Three ways Neovim wrote over a thumbnail that had just landed, each counted
+# from the cells it covered, and what keeps each one out.
+MEDIA_LUA_PEEK="$REPO_ROOT/share/nvim/lua/hikovim/media.lua"
+# ~/.vimrc's `set list` draws eol:↵ on every empty line, so the filler a preview
+# sits on was never blank.
+chk "preview windows are made quiet"   "$(grep -c '^function M.quiet_window(win)' "$MEDIA_LUA_PEEK")" "1"
+chk "with no list characters"          "$(grep -c 'list = false' "$MEDIA_LUA_PEEK")" "1"
+chk "set buffer-locally"               "$(grep -c 'vim.wo\[win\]\[0\]\[option\] = value' "$MEDIA_LUA_PEEK")" "1"
+for f in peek picture video; do
+  chk "$f.lua quiets its window" \
+    "$(grep -c 'media.quiet_window(win)' "$REPO_ROOT/share/nvim/lua/hikovim/$f.lua")" "1"
+done
+# The buffer used to shrink to two lines while loading, so every row under the
+# thumbnail was redrawn on every move.
+chk "the thumbnail's buffer has a fixed header" "$(grep -c '^M.HEADER_LINES = 4' "$PEEK")" "1"
+chk "and only the header is rewritten" \
+  "$(grep -c 'nvim_buf_set_lines(buf, 0, M.HEADER_LINES, false, top)' "$PEEK")" "1"
+chk "the thumbnail sits under the header" "$(grep -c 'paint(win, M.HEADER_LINES, png' "$PEEK")" "1"
+# The TUI is a separate process; a sixel sent in the same tick as a redraw was
+# overwritten by it 0-1 ms later, once the conversion was cached.
+chk "the redraw is flushed before a sixel" "$(grep -c 'nvim__redraw, { flush = true }' "$PEEK")" "1"
+chk "and the sixel waits behind it"       "$(grep -c 'end, SETTLE_MS)' "$PEEK")" "1"
+# One focus return set off hundreds of image.nvim renders; one repaint each was
+# 365 thumbnails in a second and a half.
+chk "a burst of renders repaints once"    "$(grep -c 'repaint_after(250)' "$PEEK")" "3"
+chk "never one repaint per render"        "$(grep -c 'vim.defer_fn(M.repaint' "$PEEK")" "0"
+# CursorMoved fires twice for one landing; the second one erased the new
+# thumbnail and drew it again.
+chk "the same landing is not started over" "$(grep -c 'if showing == wanted_sig then' "$PEEK")" "1"
+chk "image.nvim does not redraw on focus" \
+  "$(grep -c 'editor_only_render_when_focused = false,' "$PLUGINS")" "1"
 chk "focus is restored, not moved"  "$(grep -c 'if not focus and alive(here)' "$IDE")" "1"
 # get_state('filesystem') returns the state held for the *tab*, and this tree is
 # at position 'current', whose state is held per window. That call answered a

@@ -43,7 +43,14 @@ chk "the right way up"             "$(grep -c "'-auto-orient'" "$PIC")" "1"
 chk "transparency is blended away" "$(grep -c "'-alpha', 'remove'" "$PIC")" "1"
 chk "only ever shrunk"             "$(grep -c "box .. '>'" "$PIC")" "1"
 chk "vector density before input"  "$(grep -c "'magick', '-density', '144', src" "$PIC")" "1"
-chk "cached, keyed on mtime and size" "$(grep -c 'st.mtime.sec, st.mtime.nsec or 0, st.size' "$PIC")" "1"
+chk "cached, keyed on mtime and size" \
+  "$(awk '/^function M.cache_path/,/^end/' "$PIC" | grep -c 'st.mtime.sec, st.mtime.nsec or 0, st.size')" "1"
+# identify is asked once per file version, not once per move through the tree:
+# 20-30 ms a move, for an answer that only changes when the file does.
+chk "identify is remembered"           "$(grep -c '^function M.identify(path, done)' "$PIC")" "1"
+chk "keyed the same way as the copy" \
+  "$(awk '/^function M.identify/,/^end/' "$PIC" | grep -c 'st.mtime.sec, st.mtime.nsec or 0, st.size')" "1"
+chk "and the preview asks through it"  "$(grep -c '  M.identify(path, function(info)' "$PIC")" "1"
 # When ImageMagick cannot read a file, a platform decoder turns it into a PNG
 # that ImageMagick can.
 chk "sips is a fallback on macOS"  "$(grep -c "'sips', '-s', 'format', 'png'" "$PIC")" "1"

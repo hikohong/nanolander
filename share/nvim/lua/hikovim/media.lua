@@ -80,4 +80,35 @@ function M.opens_externally(path)
   return M.is_video(path)
 end
 
+-- ---------------------------------------------------------------------------
+-- The window a preview is drawn in
+-- ---------------------------------------------------------------------------
+
+-- quiet_window — make the blank lines under a preview actually blank.
+--
+-- Every preview here — the picture in the editor pane, a video's frame, the
+-- thumbnail above the tree — is a sixel painted over the buffer's filler lines,
+-- on the promise that Neovim has nothing to draw in those cells. ~/.vimrc breaks
+-- that promise: `set list` with `eol:↵` puts a character at the start of every
+-- empty line, and a redraw of one of those rows sends that character and a
+-- clear-to-end-of-line straight through the picture. Measured from the bytes a
+-- terminal receives, that is what took the thumbnail off within a millisecond of
+-- it landing, move after move.
+--
+-- Set with the buffer-local form (:setlocal), so the window keeps its own values
+-- for whatever it shows next — the outline gets its pane back unchanged.
+M.QUIET_WINDOW = {
+  list = false, number = false, relativenumber = false,
+  cursorline = false, cursorcolumn = false, colorcolumn = '',
+  signcolumn = 'no', foldcolumn = '0', statuscolumn = '',
+  spell = false, wrap = false, fillchars = 'eob: ',
+}
+
+function M.quiet_window(win)
+  if not (win and vim.api.nvim_win_is_valid(win)) then return end
+  for option, value in pairs(M.QUIET_WINDOW) do
+    pcall(function() vim.wo[win][0][option] = value end)
+  end
+end
+
 return M

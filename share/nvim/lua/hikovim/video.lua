@@ -129,6 +129,8 @@ local function show_frame(buf, thumb, y)
   if not ok then return end
   local win = vim.fn.bufwinid(buf)
   if win == -1 then return end
+  -- Blank lines that really are blank; see media.quiet_window.
+  media.quiet_window(win)
   local made, img = pcall(image.from_file, thumb, {
     window = win, buffer = buf, x = 0, y = y,
   })

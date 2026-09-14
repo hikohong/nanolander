@@ -156,6 +156,36 @@ function M.parse_identify(out)
   return { format = format, width = tonumber(w), height = tonumber(h), frames = tonumber(n) }
 end
 
+-- What identify said about a file, by path, modification time and size. Moving
+-- through a folder in the tree asked ImageMagick the same question about the
+-- same file on every pass — 20 to 30 ms a move, for an answer that only changes
+-- when the file does.
+local identified, identified_order, IDENTIFIED_MAX = {}, {}, 256
+
+-- M.identify — format, size and frames of `path`, then done(info or nil).
+-- Answers from memory when the file has not changed since it was last read.
+function M.identify(path, done)
+  local st = vim.uv.fs_stat(path)
+  if not st then return done(nil) end
+  local key = table.concat({ path, st.mtime.sec, st.mtime.nsec or 0, st.size }, '|')
+  local known = identified[key]
+  if known ~= nil then return done(known or nil) end
+  vim.system(M.identify_argv(path), { text = true }, vim.schedule_wrap(function(res)
+    local info = res.code == 0 and M.parse_identify(res.stdout) or nil
+    if info and info.format == 'PNG' and (info.frames or 1) <= 1 then
+      info.frames = M.apng_frames(path) or info.frames
+    end
+    if not identified[key] then
+      identified_order[#identified_order + 1] = key
+      if #identified_order > IDENTIFIED_MAX then
+        identified[table.remove(identified_order, 1)] = nil
+      end
+    end
+    identified[key] = info or false
+    done(info)
+  end))
+end
+
 local function set_lines(buf, lines)
   if not vim.api.nvim_buf_is_valid(buf) then return end
   local body = vim.list_extend(vim.deepcopy(lines), { '' })
@@ -230,6 +260,8 @@ local function draw(buf, png, y)
   if not ok then return end
   local win = vim.fn.bufwinid(buf)
   if win == -1 then return end
+  -- Blank lines that really are blank; see media.quiet_window.
+  media.quiet_window(win)
   -- One image per buffer: a redraw replaces it rather than stacking a second
   -- one on the terminal.
   local previous = vim.b[buf].hikovim_picture_image_id
@@ -276,12 +308,7 @@ function M.preview(buf, path)
     return
   end
 
-  -- schedule_wrap for the same reason as in run(): normalise uses vim.fn.
-  vim.system(M.identify_argv(path), { text = true }, vim.schedule_wrap(function(res)
-    local info = res.code == 0 and M.parse_identify(res.stdout) or nil
-    if info and info.format == 'PNG' and (info.frames or 1) <= 1 then
-      info.frames = M.apng_frames(path) or info.frames
-    end
+  M.identify(path, function(info)
     M.normalise(path, M.DISPLAY_BOX, function(png)
       vim.schedule(function()
         if not vim.api.nvim_buf_is_valid(buf) then return end
@@ -299,7 +326,7 @@ function M.preview(buf, path)
         draw(buf, png, #lines + 1)
       end)
     end)
-  end))
+  end)
 end
 
 function M.setup()

@@ -42,6 +42,25 @@
 -- coming back to the terminal — the thumbnail goes with everything else, so it
 -- is painted again once that flush is done.
 --
+-- Three more things keep "blank before and after" true, each found by counting
+-- what landed on the thumbnail's cells after it was sent:
+--
+--   * the window's display options: ~/.vimrc's `set list` draws ↵ on every
+--     empty line, so the "blank" filler was never blank (media.quiet_window)
+--   * the buffer's shape: a fixed header and a fixed body, so moving from one
+--     file to the next rewrites the header rows and never a row under the
+--     thumbnail. Shrinking to two lines while loading meant every one of those
+--     rows was redrawn on every move
+--   * the order: Neovim's screen goes out through the TUI, a separate process,
+--     and a sixel goes straight to the terminal. With the conversion cached the
+--     sixel was sent in the same tick as the redraw and the TUI's text landed
+--     0-1 ms after it — which is why the thumbnail worked for the first pass
+--     over a folder and never again. The redraw is flushed first, and the sixel
+--     waits a moment behind it
+--
+-- And one thing keeps it cheap: a burst of image.nvim renders — hundreds in a
+-- quarter of a second when focus comes back — asks for one repaint, not one each.
+--
 -- This module owns the buffer and what is drawn in it. Which window it goes in,
 -- and when it gives way to the outline again, is ide.lua's business — it is a
 -- pane rule, and the pane rules live there.
@@ -58,8 +77,26 @@ M.PEEK_BOX = '480x480'
 -- The filetype ide.lua's pane rule recognises as allowed in the outline pane.
 M.FILETYPE = 'hikovim_peek'
 
+-- The buffer's shape, which never changes between files: HEADER_LINES of
+-- description and a blank line, then BODY_LINES of filler for the thumbnail to
+-- sit on. Descriptions are at most three lines — picture.describe and
+-- video.describe both — and a fourth would be cut rather than move the
+-- thumbnail down.
+M.HEADER_LINES = 4
+local BODY_LINES = 200
+
+-- How long a sixel waits behind the redraw it follows. The TUI writes what it
+-- was flushed within a few milliseconds; this is comfortably past that and well
+-- under what a person can see.
+local SETTLE_MS = 24
+
+-- How long the previous thumbnail may stand in for the next one. A cached
+-- thumbnail arrives well inside it, so moving between pictures does not blink.
+local STALE_MS = 150
+
 local peek_buf
 local generation = 0
+local showing          -- what the newest request is for: window, path, mtime, size
 
 -- M.buffer — the one scratch buffer every thumbnail is shown in. Unlisted and
 -- nofile: it is a view, never a file, and never a tab.
@@ -78,10 +115,28 @@ function M.is_peek(buf)
   return buf ~= nil and buf == peek_buf and vim.api.nvim_buf_is_valid(buf)
 end
 
-local function set_lines(lines)
+-- set_lines — the header rows, over a body that stays exactly as it was. Only
+-- the header is written once the body exists, so Neovim has nothing to redraw
+-- under the thumbnail.
+local function set_lines(header, note)
   local buf = M.buffer()
+  local top = {}
+  for i = 1, M.HEADER_LINES - 1 do top[i] = header[i] or '' end
+  top[M.HEADER_LINES] = ''
   vim.bo[buf].modifiable = true
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  if vim.api.nvim_buf_line_count(buf) < M.HEADER_LINES + BODY_LINES then
+    local body = {}
+    for _ = 1, BODY_LINES do body[#body + 1] = '' end
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.list_extend(top, body))
+  else
+    vim.api.nvim_buf_set_lines(buf, 0, M.HEADER_LINES, false, top)
+  end
+  -- A note where the thumbnail would be, only ever when there is none — and the
+  -- row is left alone unless it actually changes, since it is under the picture.
+  local want = note or ''
+  if (vim.api.nvim_buf_get_lines(buf, M.HEADER_LINES, M.HEADER_LINES + 1, false)[1] or '') ~= want then
+    vim.api.nvim_buf_set_lines(buf, M.HEADER_LINES, M.HEADER_LINES + 1, false, { want })
+  end
   vim.bo[buf].modifiable = false
 end
 
@@ -168,14 +223,26 @@ local function paint(win, y, png, still_wanted)
 
   local function place(bytes)
     if not still_wanted() then return end
-    local w, h = bytes:match('"%d+;%d+;(%d+);(%d+)')
-    M.erase()
-    send('\27[s' .. ('\27[%d;%dH'):format(row + 1, col + 1) .. bytes .. '\27[u')
-    painted = {
-      row = row, col = col,
-      rows = math.min(rows, math.ceil((tonumber(h) or rows * ch) / ch)),
-      cols = math.min(cols, math.ceil((tonumber(w) or cols * cw) / cw)),
-    }
+    -- Whatever this tick changed on screen goes to the TUI now, and the sixel
+    -- follows once it has been written. See the header: the other order is the
+    -- thumbnail that vanished as soon as its conversion was cached.
+    pcall(vim.api.nvim__redraw, { flush = true })
+    vim.defer_fn(function()
+      if not still_wanted() then return end
+      local w, h = bytes:match('"%d+;%d+;(%d+);(%d+)')
+      local rect = {
+        row = row, col = col, w = w, h = h,
+        rows = math.min(rows, math.ceil((tonumber(h) or rows * ch) / ch)),
+        cols = math.min(cols, math.ceil((tonumber(w) or cols * cw) / cw)),
+      }
+      -- The same size in the same place covers the old picture pixel for pixel,
+      -- so erasing it first would only be a blink.
+      local same = painted and painted.row == rect.row and painted.col == rect.col
+        and painted.w == rect.w and painted.h == rect.h
+      if not same then M.erase() end
+      send('\27[s' .. ('\27[%d;%dH'):format(row + 1, col + 1) .. bytes .. '\27[u')
+      painted = rect
+    end, SETTLE_MS)
   end
 
   if sixel_cache[key] then return place(sixel_cache[key]) end
@@ -200,6 +267,22 @@ function M.repaint()
   paint(wanted.win, wanted.y, wanted.png, function() return last == wanted end)
 end
 
+-- repaint_after — one repaint, `ms` after the last thing that asked for one.
+--
+-- Every render image.nvim's sixel backend receives ends in a flush, so each one
+-- used to schedule a repaint of its own. When focus comes back to the terminal
+-- image.nvim renders hundreds of times in a quarter of a second, and each of
+-- those became a thumbnail sent to the terminal: 365 of them, tens of megabytes,
+-- in a second and a half — enough to stall the terminal and to cut the editor
+-- pane's picture in half on the way. A timer that restarts on every call sends
+-- the thumbnail once, after the burst.
+local repaint_timer
+local function repaint_after(ms)
+  repaint_timer = repaint_timer or vim.uv.new_timer()
+  repaint_timer:stop()
+  repaint_timer:start(ms, 0, vim.schedule_wrap(M.repaint))
+end
+
 -- watch_image_nvim — repaint after image.nvim clears the screen. Every render
 -- and clear its sixel backend receives ends in a :mode flush 50 ms later, so
 -- the thumbnail is put back once that has passed. Installed once, on the
@@ -217,7 +300,7 @@ local function watch_image_nvim()
   vim.api.nvim_create_autocmd({ 'VimResized', 'WinResized' }, {
     group = vim.api.nvim_create_augroup('hikovim_peek', { clear = true }),
     callback = function()
-      if last then vim.defer_fn(M.repaint, 250) end
+      if last then repaint_after(250) end
     end,
   })
   -- Only the calls that end in a flush. render always does; clear does unless
@@ -225,11 +308,11 @@ local function watch_image_nvim()
   -- after a shallow clear sent the same thumbnail twice for nothing.
   local render, clear = backend.render, backend.clear
   backend.render = function(...)
-    if last then vim.defer_fn(M.repaint, 250) end
+    if last then repaint_after(250) end
     return render(...)
   end
   backend.clear = function(id, shallow, ...)
-    if last and not shallow then vim.defer_fn(M.repaint, 250) end
+    if last and not shallow then repaint_after(250) end
     return clear(id, shallow, ...)
   end
 end
@@ -270,18 +353,29 @@ local function describe(path, done)
   end
   local st = vim.uv.fs_stat(path)
   if vim.fn.executable('magick') == 0 then return done({ '  ' .. name }) end
-  vim.system(picture.identify_argv(path), { text = true }, vim.schedule_wrap(function(res)
-    local info = res.code == 0 and picture.parse_identify(res.stdout) or nil
-    if info and info.format == 'PNG' and (info.frames or 1) <= 1 then
-      info.frames = picture.apng_frames(path) or info.frames
-    end
+  picture.identify(path, function(info)
     done(picture.describe(name, info, st and st.size))
-  end))
+  end)
 end
 
 -- M.show — describe `path` and draw its thumbnail in `win`, which must already
 -- be showing M.buffer(). Only the newest request is allowed to draw.
+--
+-- The same file in the same window again is not a new request. CursorMoved
+-- fires twice for one landing when the pane swap makes the tree redraw, and
+-- starting over erased a thumbnail that had just arrived and drew it again 300
+-- ms later — a blink on exactly the move that should look settled. It puts the
+-- thumbnail back in place instead, which also mends one that something else
+-- painted over.
 function M.show(win, path)
+  local st = vim.uv.fs_stat(path)
+  local wanted_sig = table.concat({ win, path, st and st.mtime.sec or 0, st and st.size or 0 }, '|')
+  if showing == wanted_sig then
+    if last then M.repaint() end
+    return
+  end
+  showing = wanted_sig
+
   generation = generation + 1
   local mine = generation
   local function current()
@@ -289,24 +383,30 @@ function M.show(win, path)
       and vim.api.nvim_win_get_buf(win) == peek_buf
   end
   watch_image_nvim()
+  media.quiet_window(win)
+  -- The previous thumbnail stays until this one is ready to take its place;
+  -- place() erases it then, and only if the two differ. But not for long: a
+  -- conversion that is not cached yet takes a moment, and the last file's
+  -- picture under this file's name is worse than a gap.
   last = nil
-  M.erase()
-  set_lines({ '  ' .. vim.fn.fnamemodify(path, ':t'), '  …' })
+  vim.defer_fn(function()
+    if current() and last == nil then M.erase() end
+  end, STALE_MS)
+  local name = vim.fn.fnamemodify(path, ':t')
+  set_lines({ '  ' .. name, '  …' })
   describe(path, function(lines)
     if not current() then return end
-    local body = vim.deepcopy(lines)
-    body[#body + 1] = ''
-    for _ = 1, 40 do body[#body + 1] = '' end
-    set_lines(body)
+    set_lines(lines)
     thumbnail(path, function(png)
       if not current() then return end
       if not png then
-        set_lines(vim.list_extend(vim.deepcopy(lines), { '', '  no preview for this file' }))
+        M.erase()
+        set_lines(lines, '  no preview for this file')
         return
       end
-      last = { win = win, y = #lines + 1, png = png }
+      last = { win = win, y = M.HEADER_LINES, png = png }
       local wanted = last
-      paint(win, #lines + 1, png, function() return current() and last == wanted end)
+      paint(win, M.HEADER_LINES, png, function() return current() and last == wanted end)
     end)
   end)
 end
@@ -315,7 +415,9 @@ end
 -- the outline back.
 function M.cancel()
   generation = generation + 1
+  showing = nil
   last = nil
+  if repaint_timer then repaint_timer:stop() end
   M.erase()
 end
 
