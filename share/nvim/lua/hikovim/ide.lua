@@ -732,8 +732,10 @@ end
 
 -- How long the cursor has to rest before a thumbnail is asked for. Short enough
 -- to feel immediate, long enough that holding j through a folder does not start
--- a conversion per row it passes.
-local PEEK_DELAY_MS = 90
+-- a conversion per row it passes — key repeat is 30 ms or faster. peek.lua adds
+-- its own short wait behind Neovim's redraw, so this is most of the delay a
+-- cached thumbnail has left.
+local PEEK_DELAY_MS = 60
 
 local peek_request = 0
 

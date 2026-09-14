@@ -407,8 +407,15 @@ return {
       -- Fill the editor pane. The default gives an image half the height.
       max_width_window_percentage = 100,
       max_height_window_percentage = 100,
-      -- Do not keep drawing into a terminal that is not being looked at.
-      editor_only_render_when_focused = true,
+      -- Off. On, every return of focus to the terminal cleared each picture and
+      -- rendered it again, and image.nvim answered with hundreds of renders in a
+      -- quarter of a second, each ending in a full-screen clear and a resend of
+      -- the editor pane's picture. Measured from the terminal's byte stream, one
+      -- alt-tab back cost tens of megabytes and left the picture cut in half.
+      -- A terminal keeps what it has drawn while it is in the background, so
+      -- there is nothing to put back. tmux, where another window really does
+      -- draw over it, keeps its own switch below.
+      editor_only_render_when_focused = false,
       tmux_show_only_in_active_window = true,
       integrations = { markdown = { enabled = true } },
     },
