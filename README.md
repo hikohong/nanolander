@@ -441,6 +441,25 @@ The backend is the whole story. Every Neovim image plugin draws with the **Kitty
 
 **The picture appears in the editor pane and nowhere else.** That took a change to how the tree opens a file. neo-tree sits in the explorer pane at position `current` — which is what makes it render into a window the layout built rather than opening a sidebar of its own — and its own open reads that literally: for `current` it skips the window search altogether and opens the file in the window it is already in. So every file opened from the tree appeared in the explorer pane first, and the layout moved it to the editor a turn of the loop later. Invisible for text. Not for an image: image.nvim hijacks on `BufWinEnter`, so it bound a picture to the *explorer* window and began drawing there, and by the time it finished the buffer had gone — its renderer bails out of a window that no longer shows the buffer without clearing what it already painted, and a sixel is painted on the terminal rather than owned by a buffer. The image stayed on the tree, in both panes at once, and only sometimes, since which of the two won the race decided it. neo-tree announces the open first, so the layout answers that and puts the file in the editor pane itself; `S`, `s` and `t` still split and open tabs, and with the layout off neo-tree's own logic is still in charge.
 
+**A picture can be zoomed.** Under its description is a line of buttons, `[ - ]  100%  [ + ]  [ fit ]`, and the wheel zooms too: with the middle button held, or with ctrl held — on a trackpad, ctrl and two fingers. The wheel zooms about the point under the mouse, so that part of the picture stays under it going in and coming out, and a burst of wheel events is drawn once it pauses; a click on a button draws straight away. Anywhere that is not a picture, and without the button or ctrl, the wheel scrolls as it always did — and it does so with the cursor in any pane, since a wheel event goes to the window under the mouse.
+
+**A pinch cannot be one of the ways in.** iTerm2 keeps a trackpad pinch for itself and changes the font size with it — its advanced setting `pinchToChangeFontSizeDisabled` only switches that off — and no terminal mouse protocol has a way to carry a pinch to the program inside. A scroll event with its modifiers is what does arrive, which is why ctrl and two fingers is the gesture here. macOS's own scroll-to-zoom in Accessibility uses ctrl as well when it is switched on, and takes the gesture before iTerm2 sees it.
+
+How it is drawn: zoomed in, the part in view is cropped out of the normalised copy; zoomed out, the copy is shrunk onto a canvas in the editor's background. Either one is made at exactly the size the picture is already drawn at, because image.nvim never draws a picture larger than it is — a crop left at its own size came out smaller the further in it went — and re-scales anything that is not the size it will draw, an extra ImageMagick run on every step. Each view is kept for the session, so going back to a zoom already seen costs no conversion.
+
+| Measured on a 1600-pixel photo | Before | After |
+| --- | --- | --- |
+| click `[ + ]` to the picture on screen | 918 ms | 432 ms |
+| ctrl and the wheel, five steps | 965 ms | 422 ms, drawn once |
+| one step out | 893 ms | 293 ms |
+| Neovim blocked while image.nvim encodes | 174 ms | 119 ms |
+
+The blocked time is image.nvim's own sixel encode, which runs synchronously on the main loop; it cannot be moved off it from here.
+
+**The picture fits under its description.** image.nvim's `max_height_window_percentage` is a share of the whole window rather than of what is left below the header, so every picture ran off the bottom of the editor pane by the height of the header, and was cropped by another ImageMagick run on every draw. The size is now worked out from the rows under the header, the way image.nvim's renderer measures them, and worked out again when the window changes size.
+
+**A split beside a picture no longer spins.** image.nvim renders any image it has not painted yet on every redraw, and rendering switches windows to look for folds, which is a redraw whenever the picture's window is not the current one; each render also pushed its own paint back. After `:vnew` beside a picture that was 14,815 renders in four seconds and a picture that never came back, on the configuration before this change too. A render that repeats one still waiting to be painted is no longer passed on, and the picture is redrawn in its new place in about 300 ms.
+
 ### Videos
 
 Opening a video in a text editor is normally a mistake: Neovim reads megabytes of binary, guesses an encoding, and fills the window with rubbish. Instead you get what yazi shows for the same file — a frame out of the middle, and the numbers worth knowing:
@@ -580,11 +599,28 @@ Those bracket motions are `mini.bracketed`'s, and four of its targets are switch
 | `:IDE` / `:IDEClose` | build the layout, or drop the panels and keep the file you were editing |
 | `:IDETerm` / `:IDETerm!` | what `<F6>` and `<F7>` do |
 | `:BufClose` / `:BufClose!` | close this tab, buffer and all — what `:q` runs |
+| `<C-w>c` | close this window. In the editor pane, any window but its last one |
+| `<C-w>o`, `<C-w><C-o>` | close the other windows. In the editor pane, only the other editor windows and the quickfix list — the panels stay |
+| `<C-w>q`, `<C-w><C-q>` | what `:q` does in the window you press it in |
+| `:IDEWinClose` / `:IDEOnly` | what `<C-w>c` and `<C-w>o` do; `:close` and `:only` run them |
 | `<C-w>` then `hjkl` | move between the panes; they are ordinary windows |
 | `<C-w>` in a terminal | leaves terminal mode first, so the same window commands work from the shell pane |
 | `gx` in a picture | hand this file to the system viewer — an animated one plays there |
 
 `:q` closes the tab rather than the window: in the editor pane that is the file, in the terminal pane that shell. `:qa`, `:wq`, `:x`, `:q file` and `:1,2q` are left to vim. Closing the last file quits, closing the last shell closes the terminal pane, and `<F6>` brings it back.
+
+**The editor pane is every window you split in it.** `:split` and `:vsplit` in the top left make more editor windows, and they are one group: a file chosen in the tree opens in whichever of them you used last, `:q` in one of several closes that window and leaves its file open in its tab, and only in the last one does `:q` close the tab. `<C-w>c` and `:close` will not close that last one, the way Neovim will not close the last window on the screen, and `<C-w>o` and `:only` close the rest of the group without touching the outline, the tree or the terminals. It used to be one remembered window: `:q` in it emptied both halves of a split and the next `:q` quit Neovim, closing it with `<C-w>c` left the tree with nowhere to open a file, and `<C-w>o` took all three panels with it.
+
+#### In a picture — the editor pane
+
+| Key | Does |
+| --- | --- |
+| single click on `[ - ]`, `[ + ]`, `[ fit ]` | zoom out a step, in a step, or back to the whole picture |
+| double click, `<3-LeftMouse>`, `<4-LeftMouse>` on a button | a quick second, third or fourth click presses it again rather than selecting a word |
+| `<MiddleMouse>` held with `<ScrollWheelUp>` / `<ScrollWheelDown>` | zoom in / out about the point under the mouse. A middle click over a picture does not paste, and `<MiddleRelease>` ends the hold |
+| `<C-ScrollWheelUp>` / `<C-ScrollWheelDown>` | the same with ctrl held; on a trackpad, ctrl and two fingers |
+
+The wheel keys are mapped everywhere, not only in a picture: over anything else, or without the middle button or ctrl, each one is the scroll it always was.
 
 #### In the file tree — bottom right, neo-tree
 
@@ -1156,6 +1192,12 @@ Do not trust `duti -x mp4` to check the result: it resolves by application name 
 Writing needs [`duti`](https://github.com/moretension/duti), which is not part of a base macOS; `--apply` installs it through Homebrew when it is missing and says so. Reporting needs nothing but PlistBuddy.
 
 ## What changed in this release
+
+### Zoom a picture, splits that stay inside the editor pane (new)
+
+A picture in the editor pane zooms: buttons under its description, the wheel with the middle button held, and ctrl with the wheel or two fingers on a trackpad, about the point under the mouse. A trackpad pinch is not one of them, because iTerm2 takes it for the font size and no terminal protocol carries it. Every picture also fits under its description now instead of running off the bottom, and a split beside a picture no longer sends image.nvim into a render loop that never drew it.
+
+`:split` and `:vsplit` in the editor pane make one group of windows. Before, the layout knew one window: `:q` in it emptied both halves of a split and the next `:q` quit Neovim, `<C-w>c` on it left the tree with nowhere to open a file, and `<C-w>o` in a split closed the outline, the tree and the terminals. Now `:q` in one of several closes that window, the last one is not closed by `<C-w>c`, and `<C-w>o` leaves the panels alone.
 
 ### Previews that stay drawn (fix)
 

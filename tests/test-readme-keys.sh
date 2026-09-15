@@ -21,6 +21,7 @@ KEYS="$REPO_ROOT/share/nvim/lua/hikovim/keys.lua"
 IDE="$REPO_ROOT/share/nvim/lua/hikovim/ide.lua"
 PLUGINS="$REPO_ROOT/share/nvim/lua/hikovim/plugins.lua"
 PICTURE="$REPO_ROOT/share/nvim/lua/hikovim/picture.lua"
+ZOOM="$REPO_ROOT/share/nvim/lua/hikovim/zoom.lua"
 
 # The reference itself, and its sub-headings. A refactor that drops a pane's
 # table takes every key in it with it, and each assertion below would still
@@ -44,7 +45,7 @@ done
 lhs_list() {
   {
     grep -ohE "map(_nxo)?\('[^']+'" "$KEYS"
-    grep -ohE "keymap\.set\((\{[^}]*\}|'[a-z]'), '[^']+'" "$IDE" "$PICTURE"
+    grep -ohE "keymap\.set\((\{[^}]*\}|'[a-z]'), '[^']+'" "$IDE" "$PICTURE" "$ZOOM"
     # plugins.lua defines mappings three more ways, and every one of them was
     # missed the first time this suite was written — dial's <C-a> passed
     # undocumented because only the two modules above were read.
@@ -119,7 +120,7 @@ done <<CMDS
 $(grep -ohE "create_user_command\('[A-Za-z]+'" "$IDE" | sed -E "s/.*'([^']+)'\$/\1/" | sort -u)
 CMDS
 chk "every user command is documented" "$cmd_missing" ""
-chk "commands found to check" "$cmd_count" "4"
+chk "commands found to check" "$cmd_count" "6"
 
 # The <C-\> family is eight letters in ~/.vimrc and has to stay eight here: a
 # letter quietly dropped from the config is a key that answers nothing, and one
