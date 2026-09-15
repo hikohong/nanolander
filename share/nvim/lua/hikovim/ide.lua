@@ -114,12 +114,101 @@ local function alive(win)
   return win and vim.api.nvim_win_is_valid(win)
 end
 
+-- ---------------------------------------------------------------------------
+-- The editor group
+-- ---------------------------------------------------------------------------
+--
+-- The top-left pane is not one window. :split and :vsplit inside it make more,
+-- and every one of them is the editor pane: files open in them, :q and <C-w>c
+-- close one of them, and nothing done there may reach the outline, the tree or
+-- the terminals.
+--
+-- The layout used to remember one window id, the one it was built with, and
+-- treat every other window as a stranger. Measured in a real Neovim: :q in that
+-- window deleted the buffer out of both halves of a :vsplit, and the next :q
+-- quit Neovim with the split still open; closing it with <C-w>c left the layout
+-- believing it had no editor, so a file chosen in the tree went nowhere and the
+-- next :q quit; and <C-w>o in a split closed all three panels.
+--
+-- A window is in the group when it is an ordinary window in the layout's tab
+-- page that is not a panel and not the quickfix list — which the layout places
+-- in the column but which never holds a file. state.editor is whichever member
+-- was used last, and when it closes the most recently used survivor takes over.
+
+local editor_mru = {}   -- editor windows by use, most recent last
+
+-- True while M.open is creating windows. Each new window is entered before it
+-- has been recorded as the panel it is about to become, and the WinEnter that
+-- keeps track of the editor group took the explorer for an editor window — the
+-- terminals were then split off underneath the tree.
+local building = false
+
+local function is_panel(win)
+  return win ~= nil and (win == state.outline or win == state.explorer or win == state.term)
+end
+
+local function layout_tab()
+  return alive(state.outline) and vim.api.nvim_win_get_tabpage(state.outline)
+    or vim.api.nvim_get_current_tabpage()
+end
+
+local function is_editor_window(win)
+  if not alive(win) or is_panel(win) then return false end
+  if vim.api.nvim_win_get_tabpage(win) ~= layout_tab() then return false end
+  if vim.api.nvim_win_get_config(win).relative ~= '' then return false end
+  return vim.bo[vim.api.nvim_win_get_buf(win)].buftype ~= 'quickfix'
+end
+
+local function editor_windows()
+  local wins = {}
+  for _, win in ipairs(vim.api.nvim_tabpage_list_wins(layout_tab())) do
+    if is_editor_window(win) then wins[#wins + 1] = win end
+  end
+  return wins
+end
+
+local function note_editor(win)
+  for i = #editor_mru, 1, -1 do
+    if editor_mru[i] == win or not alive(editor_mru[i]) then table.remove(editor_mru, i) end
+  end
+  editor_mru[#editor_mru + 1] = win
+end
+
+-- editor — the group's current window: the one used last, or the most recently
+-- used one still open, or nil when the group is empty.
+local function editor()
+  if is_editor_window(state.editor) then return state.editor end
+  state.editor = nil
+  for i = #editor_mru, 1, -1 do
+    if is_editor_window(editor_mru[i]) then
+      state.editor = editor_mru[i]
+      return state.editor
+    end
+  end
+  state.editor = editor_windows()[1]
+  return state.editor
+end
+
+-- bottom_editor — the editor window along the bottom of the column, widest
+-- first: what a new window underneath the whole group has to be split from.
+local function bottom_editor()
+  local best, best_bottom, best_width
+  for _, win in ipairs(editor_windows()) do
+    local bottom = vim.api.nvim_win_get_position(win)[1] + vim.api.nvim_win_get_height(win)
+    local width = vim.api.nvim_win_get_width(win)
+    if not best or bottom > best_bottom or (bottom == best_bottom and width > best_width) then
+      best, best_bottom, best_width = win, bottom, width
+    end
+  end
+  return best
+end
+
 -- is_open — the layout counts as up while the editor, the outline and the
 -- explorer are there. The terminal pane is deliberately not in that list:
 -- closing its last shell closes the pane, and the layout carries on without
 -- it until <F6> asks for one again.
 function M.is_open()
-  return alive(state.editor) and alive(state.outline) and alive(state.explorer)
+  return alive(state.outline) and alive(state.explorer) and editor() ~= nil
 end
 
 function M.panels()
@@ -135,7 +224,7 @@ end
 -- terminal pane is a separate process, so the only way its file reaches the
 -- right window is for the host to be told which window that is.
 function M.editor_win()
-  return alive(state.editor) and state.editor or nil
+  return M.is_open() and editor() or nil
 end
 
 -- resize — re-apply the ratios. Called after building and on every VimResized,
@@ -151,8 +240,14 @@ function M.resize()
   vim.api.nvim_win_set_height(state.outline, math.floor(right * OUTLINE_RATIO))
 
   if alive(state.term) then
-    local left = vim.api.nvim_win_get_height(state.editor)
-               + vim.api.nvim_win_get_height(state.term)
+    -- The whole column, from the top of its highest editor window to the bottom
+    -- of the terminals, however many splits the editor pane has.
+    local top = vim.api.nvim_win_get_position(state.term)[1]
+    for _, win in ipairs(editor_windows()) do
+      top = math.min(top, vim.api.nvim_win_get_position(win)[1])
+    end
+    local left = vim.api.nvim_win_get_position(state.term)[1]
+      + vim.api.nvim_win_get_height(state.term) - top
     vim.api.nvim_win_set_height(state.term, math.floor(left * TERM_RATIO))
   end
 end
@@ -283,12 +378,17 @@ function M.term_focus()
     end
     return
   end
-  if not alive(state.editor) then return end
-  vim.api.nvim_set_current_win(state.editor)
+  local under = bottom_editor()
+  if not under then return end
+  -- Passing through `under` is not using it: the group's current window stays
+  -- the one it was.
+  local back = editor()
+  vim.api.nvim_set_current_win(under)
   vim.cmd('belowright split')
   state.term = vim.api.nvim_get_current_win()
   open_terminal(state.term)
   state.pane_buf[state.term] = vim.api.nvim_win_get_buf(state.term)
+  if back then state.editor = back; note_editor(back) end
   M.resize()
 end
 
@@ -346,7 +446,7 @@ function M.term_close(buf, _force)
     state.term = nil
     state.pane_buf[pane] = nil
     pcall(vim.api.nvim_win_close, pane, true)
-    if alive(state.editor) then vim.api.nvim_set_current_win(state.editor) end
+    if editor() then vim.api.nvim_set_current_win(editor()) end
   else
     state.term = nil
   end
@@ -438,10 +538,11 @@ end
 
 -- show_in_editor — put a buffer where file contents belong and go there.
 local function show_in_editor(buf)
-  if not alive(state.editor) then return false end
-  vim.api.nvim_win_set_buf(state.editor, buf)
+  local win = editor()
+  if not win then return false end
+  vim.api.nvim_win_set_buf(win, buf)
   if vim.bo[buf].buftype == '' then vim.bo[buf].buflisted = true end
-  vim.api.nvim_set_current_win(state.editor)
+  vim.api.nvim_set_current_win(win)
   return true
 end
 
@@ -458,7 +559,7 @@ local function restore_pane(win, kind)
   if kind == 'neo-tree' then
     open_tree(win)
   elseif kind == 'aerial' then
-    pcall(function() require('aerial').open_in_win(win, state.editor) end)
+    pcall(function() require('aerial').open_in_win(win, editor()) end)
   elseif kind == 'terminal' then
     open_terminal(win)
   end
@@ -495,15 +596,20 @@ end
 -- the editor column instead, between the file and the terminal, where it is
 -- the editor pane that gives up the rows.
 local function relocate_quickfix(buf)
-  if not M.is_open() or not alive(state.editor) then return end
+  if not M.is_open() then return end
+  local under = bottom_editor()
+  if not under then return end
 
   local qwin
   for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
     if vim.api.nvim_win_get_buf(win) == buf then qwin = win break end
   end
-  if not qwin or pane_kind(qwin) or qwin == state.editor then return end
-  -- Already inside the column — nothing to do, and nothing to loop over.
-  if vim.api.nvim_win_get_width(qwin) <= vim.api.nvim_win_get_width(state.editor) then
+  if not qwin or pane_kind(qwin) or is_editor_window(qwin) then return end
+  -- Already inside the column — nothing to do, and nothing to loop over. The
+  -- right edge is what says so: comparing widths with one editor window stopped
+  -- being enough once the editor pane could be split side by side.
+  local right_col = vim.api.nvim_win_get_position(state.outline)[2]
+  if vim.api.nvim_win_get_position(qwin)[2] + vim.api.nvim_win_get_width(qwin) < right_col then
     return
   end
 
@@ -511,9 +617,11 @@ local function relocate_quickfix(buf)
   local follow = (here == qwin)
   local height = math.min(vim.api.nvim_win_get_height(qwin), 10)
 
+  local back = editor()
   vim.api.nvim_win_close(qwin, true)
-  vim.api.nvim_set_current_win(state.editor)
+  vim.api.nvim_set_current_win(under)
   vim.cmd('belowright sbuffer ' .. buf)
+  if back then state.editor = back; note_editor(back) end
   local moved = vim.api.nvim_get_current_win()
   vim.wo[moved].winfixheight = true
   vim.api.nvim_win_set_height(moved, height)
@@ -553,7 +661,7 @@ end
 ---@param focus boolean leave the cursor in the editor pane
 ---@return boolean placed
 local function open_in_editor(path, bufnr, focus)
-  if not alive(state.editor) then return false end
+  if not editor() then return false end
 
   local buf = bufnr
   if not (type(buf) == 'number' and buf > 0 and vim.api.nvim_buf_is_valid(buf)) then
@@ -1030,9 +1138,10 @@ end
 local function outline_select()
   local ok, aerial = pcall(require, 'aerial')
   if not ok then return end
-  if alive(state.editor) then
-    aerial.select({ winid = state.editor, quiet = true })
-    vim.api.nvim_set_current_win(state.editor)
+  if editor() then
+    local win = editor()
+    aerial.select({ winid = win, quiet = true })
+    vim.api.nvim_set_current_win(win)
   else
     aerial.select({ quiet = true })
   end
@@ -1057,12 +1166,13 @@ local function settle_focus()
   local tries = 0
   local function once()
     tries = tries + 1
-    if not (alive(state.editor) and M.is_open()) then return end
-    if vim.api.nvim_get_current_win() ~= state.editor then
-      vim.api.nvim_set_current_win(state.editor)
+    if not M.is_open() then return end
+    local win = editor()
+    if vim.api.nvim_get_current_win() ~= win then
+      vim.api.nvim_set_current_win(win)
     end
     if vim.fn.mode() ~= 'n' then vim.cmd('stopinsert') end
-    local settled = vim.api.nvim_get_current_win() == state.editor
+    local settled = vim.api.nvim_get_current_win() == win
       and vim.fn.mode() == 'n'
     if not settled and tries < 4 then vim.defer_fn(once, 60) end
   end
@@ -1076,12 +1186,15 @@ end
 -- is lost — :b brings any of them back into the editor pane.
 function M.open()
   if M.is_open() then
-    vim.api.nvim_set_current_win(state.editor)
+    vim.api.nvim_set_current_win(editor())
     return
   end
 
   if #vim.api.nvim_tabpage_list_wins(0) > 1 then vim.cmd('only') end
-  state.editor = vim.api.nvim_get_current_win()
+  building = true
+  local ed = vim.api.nvim_get_current_win()
+  state.editor = ed
+  editor_mru = { ed }
 
   -- The right column, full height, then split for the explorer underneath.
   vim.cmd('botright vsplit')
@@ -1090,7 +1203,7 @@ function M.open()
   state.explorer = vim.api.nvim_get_current_win()
 
   -- The terminal, below the editor and inside the left column only.
-  vim.api.nvim_set_current_win(state.editor)
+  vim.api.nvim_set_current_win(ed)
   vim.cmd('belowright split')
   state.term = vim.api.nvim_get_current_win()
   open_terminal(state.term)
@@ -1106,7 +1219,7 @@ function M.open()
   if ok_aerial then
     -- aerial only leaves a window's width alone once this is set on it.
     vim.w[state.outline].aerial_set_width = true
-    aerial.open_in_win(state.outline, state.editor)
+    aerial.open_in_win(state.outline, ed)
   else
     vim.notify('[nanolander] aerial.nvim is not installed yet (:Lazy sync).', vim.log.levels.WARN)
   end
@@ -1126,8 +1239,12 @@ function M.open()
     if alive(win) then state.pane_buf[win] = vim.api.nvim_win_get_buf(win) end
   end
 
+  state.editor = ed
+  editor_mru = { ed }
+  building = false
+
   M.resize()
-  vim.api.nvim_set_current_win(state.editor)
+  vim.api.nvim_set_current_win(ed)
 
   settle_focus()
 end
@@ -1138,25 +1255,20 @@ function M.close()
   end
   state.outline, state.explorer, state.term = nil, nil, nil
   state.pane_buf = {}
-  if alive(state.editor) then vim.api.nvim_set_current_win(state.editor) end
+  if editor() then vim.api.nvim_set_current_win(editor()) end
 end
 
 function M.toggle()
   if M.is_open() then M.close() else M.open() end
 end
 
--- only_panels_left — true when the editor pane is gone and nothing but our
--- panels remains. Without this, :q on the last file leaves Neovim sitting
--- there showing an outline of nothing and a file explorer.
+-- only_panels_left — true when the editor group is empty and the panels are
+-- still up. Without this, :q on the last file leaves Neovim sitting there
+-- showing an outline of nothing and a file explorer. A quickfix list left in
+-- the column does not count as something to edit.
 local function only_panels_left()
-  local panels = M.panels()
-  if #panels == 0 then return false end
-  local open = vim.api.nvim_tabpage_list_wins(0)
-  if #open ~= #panels then return false end
-  for _, win in ipairs(open) do
-    if not vim.tbl_contains(panels, win) then return false end
-  end
-  return true
+  if #M.panels() == 0 then return false end
+  return #editor_windows() == 0
 end
 
 -- editor_gone — :q closed the editor pane and only our panels are left. With
@@ -1290,11 +1402,69 @@ function M.quit_or_close_tab(force)
   local win = vim.api.nvim_get_current_win()
   if alive(state.term) and win == state.term then
     M.term_close(nil, force)
-  elseif M.is_open() and win == state.editor then
-    M.close_buffer(nil, force)
+  elseif M.is_open() and is_editor_window(win) then
+    if #editor_windows() > 1 then
+      -- One of several in the editor pane: the window goes, the file stays
+      -- open in its tab. Deleting the buffer here is what emptied both halves
+      -- of a split at once.
+      M.close_window(force)
+    else
+      M.close_buffer(nil, force)
+    end
   else
     pcall(vim.cmd, force and 'quit!' or 'quit')
   end
+end
+
+local function warn(err)
+  vim.notify((tostring(err):gsub('^.-Vim%(%a+%):', '')), vim.log.levels.WARN)
+end
+
+-- close_window — <C-w>c and :close in the layout. In the editor pane it closes
+-- this window as long as another editor window remains, and refuses for the
+-- last one, the way Neovim refuses to close the last window on the screen: the
+-- editor pane is the screen here, and closing its last window used to leave the
+-- layout with nowhere to put a file. :q on that window closes its tab instead.
+-- Anywhere else it is Neovim's own :close.
+function M.close_window(force)
+  local win = vim.api.nvim_get_current_win()
+  if not (M.is_open() and is_editor_window(win)) then
+    local ok, err = pcall(vim.cmd, force and 'close!' or 'close')
+    if not ok then warn(err) end
+    return
+  end
+  if #editor_windows() <= 1 then
+    vim.notify('E444: Cannot close the last window of the editor pane — :q closes its tab',
+      vim.log.levels.WARN)
+    return
+  end
+  local ok, err = pcall(vim.api.nvim_win_close, win, force == true)
+  if not ok then return warn(err) end
+  -- Neovim puts the cursor in whichever neighbour it likes, which can be a
+  -- panel. Closing an editor window leaves you in the editor pane.
+  if not is_editor_window(vim.api.nvim_get_current_win()) and editor() then
+    vim.api.nvim_set_current_win(editor())
+  end
+end
+
+-- only — <C-w>o and :only in the layout. In the editor pane it closes the other
+-- editor windows, and the quickfix list if it is open, and leaves the panels
+-- alone; before, it closed the outline, the tree and the terminals as well.
+-- Anywhere else it is Neovim's own :only.
+function M.only(force)
+  local win = vim.api.nvim_get_current_win()
+  if not (M.is_open() and is_editor_window(win)) then
+    local ok, err = pcall(vim.cmd, force and 'only!' or 'only')
+    if not ok then warn(err) end
+    return
+  end
+  for _, other in ipairs(vim.api.nvim_tabpage_list_wins(layout_tab())) do
+    if other ~= win and not is_panel(other)
+      and vim.api.nvim_win_get_config(other).relative == '' then
+      pcall(vim.api.nvim_win_close, other, force == true)
+    end
+  end
+  M.resize()
 end
 
 -- add_tabline_close_button — lualine wraps each tab in one click region that
@@ -1388,6 +1558,25 @@ function M.setup()
   vim.api.nvim_create_user_command('BufClose', function(cmd)
     M.quit_or_close_tab(cmd.bang)
   end, { bang = true, desc = 'Close this tab and its buffer' })
+  vim.api.nvim_create_user_command('IDEWinClose', function(cmd)
+    M.close_window(cmd.bang)
+  end, { bang = true, desc = ':close, kept inside the editor pane' })
+  vim.api.nvim_create_user_command('IDEOnly', function(cmd)
+    M.only(cmd.bang)
+  end, { bang = true, desc = ':only, kept inside the editor pane' })
+
+  -- The window commands that close things, kept inside the pane they are typed
+  -- in. <C-w>q is :quit, so it takes the same road as :q.
+  vim.keymap.set('n', '<C-w>c', function() M.close_window(false) end,
+    { silent = true, desc = 'Close this window (editor pane: not its last)' })
+  vim.keymap.set('n', '<C-w>o', function() M.only(false) end,
+    { silent = true, desc = 'Close the other windows (editor pane: panels stay)' })
+  vim.keymap.set('n', '<C-w><C-o>', function() M.only(false) end,
+    { silent = true, desc = 'Close the other windows (editor pane: panels stay)' })
+  vim.keymap.set('n', '<C-w>q', function() M.quit_or_close_tab(false) end,
+    { silent = true, desc = 'Quit this window (editor pane: a split, or the tab)' })
+  vim.keymap.set('n', '<C-w><C-q>', function() M.quit_or_close_tab(false) end,
+    { silent = true, desc = 'Quit this window (editor pane: a split, or the tab)' })
 
   -- :q closes the tab, buffer and all.
   --
@@ -1398,11 +1587,17 @@ function M.setup()
   -- in this layout means closing the editor pane and taking the session with
   -- it. Matching the whole command line here keeps :qa, :wq, :x, :q file and
   -- :1,2q exactly as they were.
+  -- :close and :only, in every spelling Neovim accepts, go the same way so that
+  -- typing them in the editor pane cannot reach the panels either.
+  local rewrite = {
+    ['q'] = 'BufClose', ['quit'] = 'BufClose',
+    ['clo'] = 'IDEWinClose', ['clos'] = 'IDEWinClose', ['close'] = 'IDEWinClose',
+    ['on'] = 'IDEOnly', ['onl'] = 'IDEOnly', ['only'] = 'IDEOnly',
+  }
   vim.keymap.set('c', '<CR>', function()
     if vim.fn.getcmdtype() == ':' then
-      local line = vim.fn.getcmdline()
-      if line == 'q' then return '<C-u>BufClose<CR>' end
-      if line == 'q!' then return '<C-u>BufClose!<CR>' end
+      local name, bang = vim.fn.getcmdline():match('^(%a+)(!?)$')
+      if name and rewrite[name] then return '<C-u>' .. rewrite[name] .. bang .. '<CR>' end
     end
     return '<CR>'
   end, { expr = true, desc = ':q closes the tab rather than the window' })
@@ -1500,6 +1695,18 @@ function M.setup()
   vim.api.nvim_create_autocmd('ColorScheme', {
     group = group,
     callback = apply_tab_highlights,
+  })
+
+  -- The editor group's current window is the one used last.
+  vim.api.nvim_create_autocmd('WinEnter', {
+    group = group,
+    callback = function()
+      local win = vim.api.nvim_get_current_win()
+      if not building and is_editor_window(win) and alive(state.outline) then
+        state.editor = win
+        note_editor(win)
+      end
+    end,
   })
 
   vim.api.nvim_create_autocmd('WinClosed', {

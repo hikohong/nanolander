@@ -56,6 +56,43 @@ chk "and the preview asks through it"  "$(grep -c '  M.identify(path, function(i
 chk "sips is a fallback on macOS"  "$(grep -c "'sips', '-s', 'format', 'png'" "$PIC")" "1"
 chk "ffmpeg is the last resort"    "$(grep -c "'ffmpeg', '-v', 'error', '-y', '-i', path, '-frames:v', '1'" "$PIC")" "1"
 
+# --- the size a picture is drawn at, and what image.nvim does with it ---------
+# max_height_window_percentage is a share of the whole window, so a picture ran
+# off the bottom by the height of its header and was cropped on every draw.
+chk "the picture is given the rows under its header" "$(grep -c 'local rows = fit_rows(win, y, wi)' "$PIC")" "1"
+chk "measured the way image.nvim measures them" \
+  "$(awk '/^local function fit_rows/,/^end/' "$PIC" | grep -c 'utils.offsets.get_global_offsets(win).y')" "1"
+chk "and handed to image.nvim" "$(grep -c 'window = win, buffer = buf, x = 0, y = y, width = cols, height = rows,' "$PIC")" "1"
+chk "a resized window draws it again" "$(grep -c "nvim_create_autocmd('WinResized'" "$PIC")" "1"
+# A split beside a picture: 14,815 renders in four seconds, never drawn.
+chk "a render still waiting to paint is not repeated" \
+  "$(grep -c 'if prev and prev.image == image and not image.is_rendered' "$PIC")" "1"
+chk "and a clear starts over" "$(awk '/^local function steady_flush/,/^end/' "$PIC" | grep -c 'pending\[id\] = nil')" "1"
+chk "installed before anything draws" "$(awk '/^function M.setup/,/^end/' "$PIC" | grep -c '^  steady_flush()')" "1"
+
+# --- zoom ---------------------------------------------------------------------
+ZOOM="$REPO_ROOT/share/nvim/lua/hikovim/zoom.lua"
+chk "zoom.lua ships"                 "$(exists "$ZOOM")" "y"
+chk "init.lua sets it up"            "$(grep -c "require('hikovim.zoom').setup()" "$INIT")" "1"
+chk "the preview adds the toolbar"   "$(grep -c "require('hikovim.zoom').attach(buf, #lines)" "$PIC")" "1"
+# The wheel is mapped everywhere and is its own key anywhere but a picture: a
+# wheel event goes to the window under the mouse, not the focused buffer.
+chk "the wheel is global"            "$(grep -c "vim.keymap.set('n', '<ScrollWheelUp>', wheel(" "$ZOOM")" "1"
+chk "and passes through elsewhere"   "$(awk '/^local function wheel/,/^end/' "$ZOOM" | grep -c '    return key')" "1"
+chk "middle button, then the wheel"  "$(grep -c "wheel('<ScrollWheelDown>', -1, true)" "$ZOOM")" "1"
+chk "ctrl and the wheel"             "$(grep -c "wheel('<C-ScrollWheelUp>', 1, false)" "$ZOOM")" "1"
+chk "a held button expires"          "$(grep -c '^local HELD_MS = ' "$ZOOM")" "1"
+# image.nvim never draws larger than a picture is, and re-scales anything not
+# the width it draws: a view is made at exactly the drawn size.
+chk "a zoomed view is the drawn size" "$(grep -c "'-resize', ('%dx%d!'):format(bw, bh)" "$ZOOM")" "1"
+chk "written with fast compression"  "$(grep -c "'png:compression-level=1'" "$ZOOM")" "1"
+chk "the wheel is drawn once it pauses" "$(grep -c '^local COALESCE_MS = ' "$ZOOM")" "1"
+chk "a click draws straight away"    "$(grep -c 'M.zoom(buf, r.action, nil, true)' "$ZOOM")" "1"
+chk "every system callback in zoom is scheduled" \
+  "$(grep -c 'vim.system(' "$ZOOM")" "$(grep -c 'vim.schedule_wrap(function(res)' "$ZOOM")"
+# Pinch is not claimed anywhere: iTerm2 keeps it, and no protocol carries it.
+chk "no pinch mapping pretends otherwise" "$(grep -ciE "keymap.set\([^)]*(pinch|magnif)" "$ZOOM")" "0"
+
 # The boundary this is built on, same as video.lua: preview, never animate.
 chk "nothing here animates"        "$(grep -cE "'(mpv|ffplay|vlc|gifsicle)'" "$PIC")" "0"
 

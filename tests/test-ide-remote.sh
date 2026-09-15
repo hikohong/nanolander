@@ -233,7 +233,26 @@ chk "no layout hands back" \
 # Both places that put a buffer in the editor pane check the pane is there:
 # show_in_editor for enforce, open_in_editor for a file chosen in the tree.
 chk "and both check for the pane" \
-  "$(grep -c 'if not alive(state.editor) then return false end' "$IDE")" "2"
+  "$(( $(awk '/^local function show_in_editor/,/^end/' "$IDE" | grep -c 'if not win then return false end') \
+     + $(awk '/^local function open_in_editor/,/^end/' "$IDE" | grep -c 'if not editor() then return false end') ))" "2"
+
+# The editor pane is a group of windows, not the one the layout was built with.
+# Measured in a real Neovim before this: :q in that window deleted the buffer out
+# of both halves of a :vsplit and the next :q quit; <C-w>c on it left the tree
+# with nowhere to open a file; <C-w>o in a split closed all three panels.
+chk "the group is every non-panel window" "$(grep -c '^local function is_editor_window(win)' "$IDE")" "1"
+chk "and the quickfix list is not in it"  "$(grep -c "return vim.bo\[vim.api.nvim_win_get_buf(win)\].buftype ~= 'quickfix'" "$IDE")" "1"
+chk "its window is the one used last"     "$(grep -c 'if not building and is_editor_window(win) and alive(state.outline) then' "$IDE")" "1"
+chk "and not a panel being built"         "$(grep -c '^local building = false' "$IDE")" "1"
+chk ":q in one of several closes a window" \
+  "$(awk '/^function M.quit_or_close_tab/,/^end/' "$IDE" | grep -c 'if #editor_windows() > 1 then')" "1"
+chk "the last editor window is not closed" "$(grep -c 'E444: Cannot close the last window of the editor pane' "$IDE")" "1"
+chk ":only leaves the panels" \
+  "$(awk '/^function M.only/,/^end/' "$IDE" | grep -c 'not is_panel(other)')" "1"
+chk "the layout ends when the group is empty" \
+  "$(awk '/^local function only_panels_left/,/^end/' "$IDE" | grep -c 'return #editor_windows() == 0')" "1"
+chk ":close and :only are rewritten too" \
+  "$(grep -cE "\['(close|only)'\] = 'IDE(WinClose|Only)'" "$IDE")" "2"
 # A buffer number has nothing to escape; a path handed to :edit does.
 chk "the path is not re-escaped"   "$(grep -c 'vim.fn.bufadd(path)' "$IDE")" "1"
 # Taking the open away from neo-tree took its buflisted with it, and the tab

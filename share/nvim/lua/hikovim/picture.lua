@@ -255,7 +255,34 @@ function M.normalise(path, box, done)
 end
 
 -- draw — put `png` under the text in whichever window shows `buf`.
-local function draw(buf, png, y)
+-- fit_rows — how many rows a picture starting `y` lines down `win` may have
+-- without image.nvim cropping it. Its renderer measures the bottom as the
+-- window's bottom row less one, plus the tabline and winbar, and crops anything
+-- whose start row plus height passes that. The same three calls it makes, so
+-- the two agree; crossing that line by a single row is a crop, and a crop is an
+-- ImageMagick run of 150-230 ms on every draw and every zoom step. image.nvim is
+-- pinned by lazy-lock.json. When any of it is missing, two rows short of the
+-- window is what it came to on a plain window.
+local function fit_rows(win, y, wi)
+  local fallback = math.max(1, (wi and wi.height or 1) - y - 2)
+  local ok, utils = pcall(require, 'image/utils')
+  if not (ok and utils.window and utils.window.get_window and utils.offsets) then return fallback end
+  local got, rows = pcall(function()
+    local pos = vim.fn.screenpos(win, y + 1, 1)
+    if pos.row == 0 then return nil end
+    local window = utils.window.get_window(win, {})
+    if not (window and window.rect) then return nil end
+    local bottom = window.rect.bottom - (window.is_floating and 0 or 1)
+      + utils.offsets.get_global_offsets(win).y
+    return bottom - pos.row
+  end)
+  if got and type(rows) == 'number' and rows >= 1 then return rows end
+  return fallback
+end
+
+-- M.draw — the one way a picture reaches the editor pane: this, and zoom.lua's
+-- views, which are pictures too.
+function M.draw(buf, png, y)
   local ok, image = pcall(require, 'image')
   if not ok then return end
   local win = vim.fn.bufwinid(buf)
@@ -270,7 +297,17 @@ local function draw(buf, png, y)
       for _, img in ipairs(image.get_images({ buffer = buf })) do img:clear() end
     end)
   end
-  local made, img = pcall(image.from_file, png, { window = win, buffer = buf, x = 0, y = y })
+  -- The rows under the header and the columns of text, and no more. image.nvim's
+  -- max_height_window_percentage is a share of the whole window, not of what is
+  -- left below `y`, so a picture fitted to it ran off the bottom by the height
+  -- of the header — cut short on screen, and cropped by an extra ImageMagick
+  -- run on every draw. See fit_rows for how many rows image.nvim will accept.
+  local wi = vim.fn.getwininfo(win)[1]
+  local rows = fit_rows(win, y, wi)
+  local cols = math.max(1, (wi and wi.width or 1) - (wi and wi.textoff or 0))
+  local made, img = pcall(image.from_file, png, {
+    window = win, buffer = buf, x = 0, y = y, width = cols, height = rows,
+  })
   if made and img then
     vim.b[buf].hikovim_picture_image_id = img.id
     pcall(function() img:render() end)
@@ -320,16 +357,65 @@ function M.preview(buf, path)
           set_lines(buf, lines)
           return
         end
+        -- The zoom toolbar is the last line of the header, so the picture
+        -- starts one line further down.
+        lines[#lines + 1] = ''
         set_lines(buf, lines)
         vim.b[buf].hikovim_picture_png = png
         vim.b[buf].hikovim_picture_y = #lines + 1
-        draw(buf, png, #lines + 1)
+        local zoomed = pcall(function() require('hikovim.zoom').attach(buf, #lines) end)
+        if zoomed and (vim.b[buf].hikovim_zoom_step or 0) ~= 0 then
+          require('hikovim.zoom').render(buf)
+        else
+          M.draw(buf, png, #lines + 1)
+        end
       end)
     end)
   end)
 end
 
+-- steady_flush — stop image.nvim re-rendering a picture it has not painted yet.
+--
+-- Its sixel backend paints on a timer: every render schedules a flush 50 ms
+-- later and restarts that timer if one is waiting. Its window-overlap check runs
+-- on every redraw and renders any image not yet painted, and rendering switches
+-- the current window to check for folds and back, which is itself a redraw
+-- whenever the picture's window is not the current one. So with the cursor
+-- anywhere else — the window :vnew just made, the tree, the terminal — each
+-- render caused the next: measured at 14,815 renders in four seconds after a
+-- :vnew beside a picture, on the configuration before this change too, with
+-- the flush pushed back every time and the picture never drawn.
+--
+-- A render of the same image, at the same place and size, while it is still
+-- waiting for that flush adds nothing, so it is not passed on and the flush the
+-- first one scheduled goes ahead. Once the image is painted, or cleared, renders
+-- go through as before — which is how a resize, a scroll or focus coming back
+-- still redraws it.
+local function steady_flush()
+  local ok, backend = pcall(require, 'image/backends/sixel')
+  if not ok or type(backend) ~= 'table' or backend.hikovim_steady then return end
+  local render, clear = backend.render, backend.clear
+  local pending = {}
+  backend.render = function(image, x, y, width, height, ...)
+    local id = image and image.id
+    local prev = id and pending[id]
+    if prev and prev.image == image and not image.is_rendered
+      and prev.x == x and prev.y == y and prev.w == width and prev.h == height
+      and (vim.uv.now() - prev.at) < 1000 then
+      return
+    end
+    if id then pending[id] = { image = image, x = x, y = y, w = width, h = height, at = vim.uv.now() } end
+    return render(image, x, y, width, height, ...)
+  end
+  backend.clear = function(id, ...)
+    if id then pending[id] = nil else pending = {} end
+    return clear(id, ...)
+  end
+  backend.hikovim_steady = true
+end
+
 function M.setup()
+  steady_flush()
   local group = vim.api.nvim_create_augroup('hikovim_picture', { clear = true })
   vim.api.nvim_create_autocmd('BufReadCmd', {
     group = group,
@@ -342,6 +428,33 @@ function M.setup()
       M.preview(ev.buf, vim.fn.fnamemodify(ev.file, ':p'))
     end,
   })
+  -- The size a picture is drawn at is worked out from its window, so a window
+  -- that changes size draws it again. The view it is at, zoomed or not.
+  local resize_timer
+  vim.api.nvim_create_autocmd('WinResized', {
+    group = group,
+    callback = function()
+      local bufs = {}
+      for _, win in ipairs(vim.v.event.windows or {}) do
+        if vim.api.nvim_win_is_valid(win) then
+          local b = vim.api.nvim_win_get_buf(win)
+          if vim.bo[b].filetype == 'hikovim_picture' and vim.b[b].hikovim_picture_png then bufs[b] = true end
+        end
+      end
+      if next(bufs) == nil then return end
+      resize_timer = resize_timer or vim.uv.new_timer()
+      resize_timer:stop()
+      resize_timer:start(120, 0, vim.schedule_wrap(function()
+        for b in pairs(bufs) do
+          if vim.api.nvim_buf_is_valid(b) then
+            vim.b[b].hikovim_zoom_px_w, vim.b[b].hikovim_zoom_px_h = nil, nil
+            pcall(function() require('hikovim.zoom').render(b) end)
+          end
+        end
+      end))
+    end,
+  })
+
   -- A picture drawn once is drawn into one window. Coming back to its tab, or
   -- showing it in another window, draws it again — from the cached copy, so
   -- that costs an encode and no conversion.
@@ -349,9 +462,10 @@ function M.setup()
     group = group,
     pattern = media.IMAGE,
     callback = function(ev)
-      local png = vim.b[ev.buf].hikovim_picture_png
+      -- The view it was left at, if it was zoomed.
+      local png = vim.b[ev.buf].hikovim_picture_view or vim.b[ev.buf].hikovim_picture_png
       if png and vim.uv.fs_stat(png) then
-        vim.schedule(function() draw(ev.buf, png, vim.b[ev.buf].hikovim_picture_y or 3) end)
+        vim.schedule(function() M.draw(ev.buf, png, vim.b[ev.buf].hikovim_picture_y or 3) end)
       end
     end,
   })
