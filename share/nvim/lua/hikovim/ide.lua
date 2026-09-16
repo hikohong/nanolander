@@ -8,7 +8,7 @@
 --   │                          ├───────────────┤
 --   ├──────────────────────────┤ file tree     │   neo-tree.nvim
 --   │ shells, listed in its    │               │
---   │ winbar: 1 zsh ✕ 2 zsh ✕ +│               │
+--   │ winbar: 1 zsh ✕▶2 zsh ✕▶+│               │
 --   └──────────────────────────┴───────────────┘
 --         left : right  =  4 : 1
 --
@@ -55,6 +55,16 @@ local CLOSE_ICON = '✕'
 -- extension lists.
 M.ROOT_PICK_ICON = '󰥨'
 
+-- The trailing edge of a tab. lualine draws this after each file tab as its
+-- `section_separators.left`, and that is what gives the strip along the top its
+-- page shape. The terminal pane's winbar drew a plain space instead, so its
+-- shells ended square and the two strips did not read as the same thing.
+--
+-- One copy, exported, and plugins.lua reads it for lualine — same rule as
+-- ROOT_PICK_ICON above. The `◀` lualine uses on the other side stays in
+-- plugins.lua, because nothing else draws it.
+M.TAB_SEP = '▶'
+
 -- How a tab is painted, in both strips: the files along the top and the shells
 -- in the terminal pane's winbar.
 --
@@ -67,6 +77,15 @@ local TAB_HL = {
   HikovimTabSel  = { fg = '#141413', bg = '#aeee00', bold = true }, -- blackestgravel on lime
   HikovimTab     = { fg = '#0a9dff', bg = '#242321' },              -- tardis on darkgravel
   HikovimTabFill = { bg = '#242321' },
+  -- A powerline separator is the tab's own background drawn as a glyph on
+  -- whatever comes next, which is what makes it read as an edge rather than as
+  -- an arrow someone typed. So fg here is the tab's bg.
+  --
+  -- HikovimTabSep is therefore darkgravel on darkgravel and invisible, which is
+  -- correct and is what lualine does too: only the tab you are on gets a
+  -- visible edge, because an unfocused tab already shares the strip's ground.
+  HikovimTabSelSep = { fg = '#aeee00', bg = '#242321' },
+  HikovimTabSep    = { fg = '#242321', bg = '#242321' },
 }
 
 -- Highlight groups are cleared by every :colorscheme, so they are set again
@@ -259,7 +278,7 @@ end
 -- The bottom-left pane holds any number of shells, listed across its winbar
 -- the way the files are listed across the tabline:
 --
---   1 zsh ✕  2 zsh ✕  +
+--   1 zsh ✕▶ 2 zsh ✕▶ +
 --
 -- Click a name to switch, the ✕ to close it, + for another one. <F6> and <F7>
 -- do the same from the keyboard, and :q inside the pane closes the shell it
@@ -334,10 +353,18 @@ end
 function M.term_winbar()
   local strip = {}
   for i, buf in ipairs(term_prune()) do
+    local current = buf == state.term_cur
     strip[#strip + 1] = table.concat({
-      buf == state.term_cur and '%#HikovimTabSel#' or '%#HikovimTab#',
+      current and '%#HikovimTabSel#' or '%#HikovimTab#',
       ('%%%d@HikovimTermGo@ %d %s %%T'):format(buf, i, term_name(buf)),
-      ('%%%d@HikovimTermClose@%s %%T'):format(buf, CLOSE_ICON),
+      -- No space after the ✕: lualine puts the edge straight against it, and a
+      -- cell of padding here is what made the two strips a column out of step.
+      ('%%%d@HikovimTermClose@%s%%T'):format(buf, CLOSE_ICON),
+      -- The same trailing edge lualine gives a file tab, so the two strips are
+      -- the same shape. Drawn in the tab's own background, which is why it
+      -- needs its own highlight rather than HikovimTabFill.
+      current and '%#HikovimTabSelSep#' or '%#HikovimTabSep#',
+      M.TAB_SEP,
       '%#HikovimTabFill# ',
     })
   end
