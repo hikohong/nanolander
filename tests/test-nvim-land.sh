@@ -152,13 +152,31 @@ chk "ruff is not in the preference list" "$(lsp_preferred | grep -c ruff)" "0"
 
 # preferred_winner walks the list in order, which is the whole point: with two
 # installed, the first one wins and the other is stood down.
+#
+# "only pylsp installed" has to be made true, not assumed. stub_tools only adds
+# a binary; a machine that really has one of the higher-ranked servers still has
+# it, and then pyright legitimately wins and the assertion reads as a bug in
+# preferred_winner. It failed on a Mac with /opt/homebrew/bin/pyright-langserver
+# while passing in CI, where no Python server exists — the same host assumption
+# as the rc-file and the path_without cases.
+#
+# path_without drops whole directories, which is safe here: preferred_winner is
+# a sourced shell function that needs only `command -v` and a sed over
+# lua/hikovim/lsp.lua, and the stub directory holds none of the named binaries
+# so it survives.
 STUB2="$H/stub-lsp"
+NO_PY_LSP="basedpyright-langserver pyright-langserver jedi-language-server"
 stub_tools "$STUB2" pylsp
+# shellcheck disable=SC2086  # the server list must word-split into arguments
 chk "only pylsp installed -> pylsp wins" \
-  "$(preferred_winner python basedpyright pyright pylsp jedi_language_server)" "pylsp"
+  "$(PATH=$(path_without $NO_PY_LSP) \
+     preferred_winner python basedpyright pyright pylsp jedi_language_server)" "pylsp"
 stub_tools "$STUB2" pyright-langserver
+# Same reason, one rank up: with the host's own pyright still visible this would
+# pass whether or not the stub was ever consulted.
 chk "pyright installed too -> pyright wins" \
-  "$(preferred_winner python basedpyright pyright pylsp jedi_language_server)" "pyright"
+  "$(PATH=$(path_without basedpyright-langserver) \
+     preferred_winner python basedpyright pyright pylsp jedi_language_server)" "pyright"
 chk "and the report stands the other down" \
   "$("$NL" | grep -c 'another server answers')" "1"
 stub_tools "$STUB2" basedpyright-langserver

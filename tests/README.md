@@ -125,6 +125,13 @@ Each has an assertion here now. Keep them.
   one. Both readings of this went wrong before: hard-coding `.bashrc` made the
   first suite assert against a file macOS never writes, and inferring it from
   `uname` was still wrong for a Linux box whose owner logs into zsh.
+- **A tool the host happens to have is not absent because a stub was added.**
+  `stub_tools` only *adds* a binary. `test-nvim-land.sh` asserted "only pylsp
+  installed -> pylsp wins" after stubbing pylsp alone, so on a Mac carrying
+  `/opt/homebrew/bin/pyright-langserver` the higher-ranked pyright legitimately
+  won and the assertion read as a bug in `preferred_winner`. It passed in CI,
+  where no Python language server exists. Establishing "only X is installed"
+  takes `path_without` for everything ranked above X as well as a stub for X.
 - **Nothing outside a throwaway `HOME`.** `temp_home` sets `TEST_HOME` and
   exports `HOME`; it does not print the path, because `H=$(temp_home)` would
   run the export in a subshell and leave the suite writing into the real home
