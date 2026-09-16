@@ -780,7 +780,7 @@ That message is clear and harmless, and for Python it is also the right answer �
 │  (the editor)            │               │
 │                          ├───────────────┤
 ├──────────────────────────┤ file tree     │  neo-tree.nvim
-│  1 zsh ✕  2 zsh ✕  +     │               │
+│  1 zsh ✕▶ 2 zsh ✕▶ +     │               │
 │  the terminals           │               │
 └──────────────────────────┴───────────────┘
         left : right = 4 : 1

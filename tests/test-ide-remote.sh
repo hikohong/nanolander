@@ -443,6 +443,34 @@ chk "and pins no luarocks bootstrap" "$(grep -c '"hererocks":' "$LOCK")" "0"
 IDE="$REPO_ROOT/share/nvim/lua/hikovim/ide.lua"
 PLUG="$REPO_ROOT/share/nvim/lua/hikovim/plugins.lua"
 
+# ---------------------------------------------------------------------------
+# The two strips are the same shape.
+# ---------------------------------------------------------------------------
+#
+# lualine ends a file tab with its section separator, which is what gives the
+# strip along the top its page shape. The terminal pane's winbar ended a shell
+# with a plain space instead, so its tabs were square-edged and the two strips
+# did not read as the same thing. Same single-owner rule as ROOT_PICK_ICON: the
+# glyph is declared once and lualine reads it, or the two drift apart again.
+chk "the edge is declared once"     "$(grep -c '^M.TAB_SEP = ' "$IDE")" "1"
+chk "the winbar draws it"           "$(grep -c 'M.TAB_SEP,' "$IDE")" "1"
+chk "and lualine reads it from ide" "$(grep -c 'ide.TAB_SEP' "$PLUG")" "1"
+# A fallback literal would be the second copy this exists to prevent; the `◀`
+# on the other side has no second user and stays in plugins.lua.
+chk "plugins.lua keeps no copy"     "$(grep -c "left = '▶'" "$PLUG")" "0"
+chk "the other side is untouched"   "$(grep -c "right = '◀'" "$PLUG")" "1"
+
+# A powerline edge is the tab's own background drawn as a glyph over what comes
+# next, so its fg has to be the tab's bg. Painting it in HikovimTabFill instead
+# would draw a literal arrow in the foreground colour.
+chk "the edge has its own groups"   "$(grep -c 'HikovimTabSelSep = { fg' "$IDE")" "1"
+chk "in the selected tab's colour"  "$(grep -c "HikovimTabSelSep = { fg = '#aeee00'" "$IDE")" "1"
+chk "and the unfocused one matches" "$(grep -c "HikovimTabSep    = { fg = '#242321'" "$IDE")" "1"
+
+# lualine puts its edge straight against the ✕. A space inside the close
+# button's click region put the winbar one column out of step with it.
+chk "no padding after the close icon"   "$(grep -c "HikovimTermClose@%s%%T" "$IDE")" "1"
+
 # One owner for the icon. plugins.lua renders it into the root name and
 # ide.root_click searches the rendered line for it again, so a second copy is
 # how the button appears and clicking it does nothing — the same failure

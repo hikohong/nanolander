@@ -167,7 +167,18 @@ return {
     opts = {
       options = {
         theme = badwolf,
-        section_separators = { left = '▶', right = '◀' },
+        -- The tab's trailing edge is ide.lua's, because the terminal pane's
+        -- winbar draws the same glyph and the two strips have to stay the same
+        -- shape. No fallback literal here: a second copy is the thing this is
+        -- avoiding, and with ide.lua unloadable an unseparated tabline is the
+        -- least of the problems. The `◀` has no second user, so it lives here.
+        section_separators = {
+          left = (function()
+            local ok, ide = pcall(require, 'hikovim.ide')
+            return ok and ide.TAB_SEP or nil
+          end)(),
+          right = '◀',
+        },
         component_separators = { left = '»', right = '«' },
         globalstatus = false,
       },
