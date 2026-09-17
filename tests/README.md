@@ -142,6 +142,19 @@ Each has an assertion here now. Keep them.
   won and the assertion read as a bug in `preferred_winner`. It passed in CI,
   where no Python language server exists. Establishing "only X is installed"
   takes `path_without` for everything ranked above X as well as a stub for X.
+- **A `grep -q` on the right of a pipe is a race under `pipefail`.** Every
+  suite sets `set -uo pipefail`, and `grep -q` exits the moment it matches, so
+  once the left side has more to write than the pipe will hold it takes EPIPE,
+  exits non-zero, and `pipefail` gives that status to the pipeline — a
+  successful match reported as a failure. `test-readme-keys.sh` searched
+  README's keys reference this way. The section is 17,898 bytes; macOS starts a
+  pipe at 16 KB and Linux at 64 KB, so Linux swallowed the whole thing before
+  grep was scheduled and macOS had to block. It passed on Linux every time,
+  passed on macOS most times, and one run reported `,fb` — documented, on
+  README line 532 — as missing, on a diff that came nowhere near it. `holds` in
+  `lib.sh` is the replacement: a quoted expansion in a `case` pattern is a
+  literal match with no pipe and no second process. Reproduce the old
+  behaviour on Linux by making the text exceed 64 KB.
 - **Nothing outside a throwaway `HOME`.** `temp_home` sets `TEST_HOME` and
   exports `HOME`; it does not print the path, because `H=$(temp_home)` would
   run the export in a subshell and leave the suite writing into the real home

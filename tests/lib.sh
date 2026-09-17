@@ -67,6 +67,32 @@ path_without() {
   printf '%s' "$out"
 }
 
+# holds <text> <literal> — true when the text contains the literal.
+#
+# This is what `printf '%s\n' "$text" | grep -Fq -- "$literal"` was for, and
+# that spelling is a race under `set -o pipefail`. grep -q exits the moment it
+# matches; once the text is larger than the pipe buffer, printf is still
+# writing, so it takes EPIPE, exits non-zero, and pipefail hands *that* status
+# to the whole pipeline. The needle was there and the check said it was not.
+#
+# It showed up as macOS only and looked like a content problem. README's keys
+# reference is 17,898 bytes: macOS starts a pipe at 16 KB, so printf has to
+# block and can lose the race, while Linux starts at 64 KB and takes the lot
+# before grep is scheduled at all. So the same tree passed on Linux every time,
+# passed on macOS most times, and failed on a run whose diff came nowhere near
+# the section being searched. A flake that reports a real documented key as
+# undocumented is worse than no check.
+#
+# A quoted expansion inside a case pattern is literal — no globbing, no regex —
+# so this is the fixed-string match grep -F was doing, with no pipe and no
+# process to lose a race with.
+holds() {
+  case "$1" in
+    *"$2"*) return 0 ;;
+    *)      return 1 ;;
+  esac
+}
+
 # stub_tools <dir> <name...> — instant no-op executables on PATH.
 #
 # The suites drive the real ./bin/nanolander, which refreshes the package
