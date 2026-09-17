@@ -1029,7 +1029,11 @@ On a slow link the image payloads are the expensive part; nothing else about yaz
 
 They need no network, no root and no particular platform: GitHub releases are local fixtures served over `file://` with the API call stubbed, and anything that writes writes into a throwaway `HOME`. That covers the download, SHA-256 check, extraction and install path for real.
 
-Five suites exist because of a way asset selection or a write can go wrong — an `arm64` host handed a `linux_arm` build, the last asset of every release silently dropped, a same-second backup collision that destroyed the only copy of an rc file, keyword matching preferring FFmpeg's shared build and yazi's `gnu` build over the ones that actually run, and a config file chosen from the platform instead of the login shell, which put an Amazon Linux cloud desktop's settings into a `~/.zshrc` that its `logbash` login never read. Each has an assertion now, so a refactor cannot quietly reopen them.
+Six suites exist because of a way asset selection, a write or a printed line can go wrong — an `arm64` host handed a `linux_arm` build, the last asset of every release silently dropped, a same-second backup collision that destroyed the only copy of an rc file, keyword matching preferring FFmpeg's shared build and yazi's `gnu` build over the ones that actually run, a config file chosen from the platform instead of the login shell, which put an Amazon Linux cloud desktop's settings into a `~/.zshrc` that its `logbash` login never read, and `--list-tools` stopping mid-sentence because its last line was a format string beginning with `--`, which bash's printf reads as an option. Each has an assertion now, so a refactor cannot quietly reopen them.
+
+`test-entry-points.sh` covers the last of those as a rule rather than a line: for every script in `bin/`, `--help`, `--version` and `--list-tools` have to print on stdout, say nothing on stderr and exit 0, and an unrecognised option has to be 64. It takes `bin/*` as a glob, so a new helper is covered the day it arrives.
+
+CI also parses every Lua file under `share/` with `luac5.1 -p`. Neovim runs LuaJIT, so 5.1 is the right syntax, and it catches the class of typo that would otherwise first appear as an error on the next editor start.
 
 What they cannot reach: macOS (Homebrew, and all of `iterm-tune`'s writing), Amazon Linux, the live GitHub API, and a real Neovim load. `tests/README.md` says so in full; CI repeats the same list rather than implying otherwise.
 

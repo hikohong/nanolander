@@ -89,8 +89,7 @@ missing=""
 while IFS= read -r key; do
   [ -n "$key" ] || continue
   count=$((count + 1))
-  printf '%s\n' "$reference" | grep -Fq -- "$(readme_spelling "$key")" \
-    || missing="$missing $key"
+  holds "$reference" "$(readme_spelling "$key")" || missing="$missing $key"
 done <<KEYS_IN
 $(lhs_list)
 KEYS_IN
@@ -100,9 +99,9 @@ KEYS_IN
 # about why the double click used to do nothing.
 tree_section=$(sed -n '/^#### In the file tree/,/^#### /p' "$README")
 chk "single click is in the tree section" \
-  "$(printf '%s\n' "$tree_section" | grep -q 'single click' && echo yes || echo no)" "yes"
+  "$(holds "$tree_section" 'single click' && echo yes || echo no)" "yes"
 chk "double click is in the tree section" \
-  "$(printf '%s\n' "$tree_section" | grep -q 'double click' && echo yes || echo no)" "yes"
+  "$(holds "$tree_section" 'double click' && echo yes || echo no)" "yes"
 
 # A count too, so a regex that silently stops matching cannot pass by finding
 # nothing to check.
@@ -154,7 +153,7 @@ chk "the reversal is explained" \
 copilot_section=$(sed -n '/^#### Completion and predictive text/,/^#### /p' "$README")
 for phrase in 'Node' 'subscription' 'Copilot auth'; do
   chk "copilot caveat names $phrase" \
-    "$(printf '%s\n' "$copilot_section" | grep -qF "$phrase" && echo yes || echo no)" "yes"
+    "$(holds "$copilot_section" "$phrase" && echo yes || echo no)" "yes"
 done
 
 # mini.bracketed's disabled targets are a deliberate list, and the reason each

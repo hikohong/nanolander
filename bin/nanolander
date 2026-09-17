@@ -230,6 +230,8 @@ COMPANION SCRIPTS:
                      normal run installs it; call it directly to report what
                      would change (it reports by default, writes with --apply).
   ./bin/iterm-tune   iTerm2 performance tuning, macOS only.
+  ./bin/vlc-default  VLC as the default video player instead of QuickTime,
+                     macOS only. Reports by default, writes with --apply.
 
 UNDOING A RUN:
   Shell config files are copied into ~/.nanolander-backups the first time a
@@ -256,13 +258,20 @@ print_tool_catalog() {
   done <<CATALOG
 $TOOL_CATALOG
 CATALOG
-  printf '\nFilter with --only or --skip using either column, e.g. --only rg,ripgrep\n'
-  printf 'Every tool lands on all four platforms except three: Neovide and resvg are\n'
-  printf 'published for macOS and x86_64 Linux only, and yazi has no 32-bit ARM build\n'
-  printf 'anywhere. Where there is nothing to fetch the tool is SKIPPED, not FAILED.\n'
-  printf 'The preview backends exist for yazi; each is useful on its own too.\n'
-  printf 'Neovim is configured as part of a normal run; opt out with\n'
-  printf '--without-nvim-config, or run ./bin/nvim-land on its own.\n'
+  # Every line goes through one %s format rather than being the format itself.
+  # The last of them starts with --, and a format string starting with a dash
+  # is an option to bash's printf builtin: it answered "--: invalid option" on
+  # stderr and printed nothing, so --list-tools ended mid-sentence on every
+  # platform while still exiting 0, which is why no check caught it.
+  printf '\n'
+  printf '%s\n' \
+    'Filter with --only or --skip using either column, e.g. --only rg,ripgrep' \
+    'Every tool lands on all four platforms except three: Neovide and resvg are' \
+    'published for macOS and x86_64 Linux only, and yazi has no 32-bit ARM build' \
+    'anywhere. Where there is nothing to fetch the tool is SKIPPED, not FAILED.' \
+    'The preview backends exist for yazi; each is useful on its own too.' \
+    'Neovim is configured as part of a normal run; opt out with' \
+    '--without-nvim-config, or run ./bin/nvim-land on its own.'
 }
 
 # ---------------------------------------------------------------------------

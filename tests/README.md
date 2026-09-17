@@ -28,8 +28,9 @@ adds them up and exits non-zero if anything failed.
 | `test-payload-pick.sh` | which file inside an archive gets installed, and whether a version query proves anything |
 | `test-picture-preview.sh` | what opening a picture shows: the formats, the one conversion flag by flag, the frame and page lines, APNG detection, and several files of one extension in one session |
 | `test-readme-keys.sh` | every mapping and command the Neovim configuration defines — in `keys.lua`, `ide.lua` and the plugin specs alike — is written down in README.md's keys reference |
+| `test-entry-points.sh` | what every script in `bin/` does when asked to explain itself: `--help`, `--version` and `--list-tools` print on stdout, say nothing on stderr and exit 0, and an unknown option is 64 |
 
-Thirteen of these exist because of a way asset selection, a write, or a run
+Fourteen of these exist because of a way asset selection, a write, or a run
 goes wrong:
 
 - an `arm64` host was handed a `linux_arm` build, so `select_asset` matches a
@@ -92,7 +93,16 @@ goes wrong:
   — it answers `E5600` — so the terminal pane got an error instead of a file
 - `pending_count` counted `lazy-lock.json`, so `--freeze` refused to run in the
   one situation it exists for and no plugin could ever be added
-
+- `--list-tools` stopped mid-sentence on every platform, for sixteen merged
+  pull requests. Its last line was
+  `printf '--without-nvim-config, or run ./bin/nvim-land on its own.\n'`, and a
+  format string starting with a dash is an *option* to bash's printf builtin:
+  it answered `printf: --: invalid option` on stderr and printed nothing. The
+  exit status stayed 0, because the builtin's failure is not the function's,
+  so the consistency job — which reads the first line of that same command —
+  passed throughout. Nothing had ever looked at stderr.
+  `test-entry-points.sh` asserts that every informational command leaves
+  stderr empty, and that this sentence in particular reaches the screen whole.
 - `join` in the video preview walked its parts with `ipairs` over a table that
   had holes in it. ffprobe leaves gaps — a file with a codec but no resolution
   gives `(nil, 'theora', nil)` — and `ipairs` stops at the first `nil`, so the
@@ -132,6 +142,19 @@ Each has an assertion here now. Keep them.
   won and the assertion read as a bug in `preferred_winner`. It passed in CI,
   where no Python language server exists. Establishing "only X is installed"
   takes `path_without` for everything ranked above X as well as a stub for X.
+- **A `grep -q` on the right of a pipe is a race under `pipefail`.** Every
+  suite sets `set -uo pipefail`, and `grep -q` exits the moment it matches, so
+  once the left side has more to write than the pipe will hold it takes EPIPE,
+  exits non-zero, and `pipefail` gives that status to the pipeline — a
+  successful match reported as a failure. `test-readme-keys.sh` searched
+  README's keys reference this way. The section is 17,898 bytes; macOS starts a
+  pipe at 16 KB and Linux at 64 KB, so Linux swallowed the whole thing before
+  grep was scheduled and macOS had to block. It passed on Linux every time,
+  passed on macOS most times, and one run reported `,fb` — documented, on
+  README line 532 — as missing, on a diff that came nowhere near it. `holds` in
+  `lib.sh` is the replacement: a quoted expansion in a `case` pattern is a
+  literal match with no pipe and no second process. Reproduce the old
+  behaviour on Linux by making the text exceed 64 KB.
 - **Nothing outside a throwaway `HOME`.** `temp_home` sets `TEST_HOME` and
   exports `HOME`; it does not print the path, because `H=$(temp_home)` would
   run the export in a subshell and leave the suite writing into the real home
