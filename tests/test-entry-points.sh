@@ -97,4 +97,16 @@ chk "--list-tools prints every row it claims" "$listed" "$claimed"
 chk "--list-tools has no unexpanded conversions" \
   "$(yn grep -qE '%[-0-9]*[sd]' "$out")" "n"
 
+# Every companion is named in the main script's help. bin/vlc-default was in
+# README, in docs/index.html and in CLAUDE.md's helper table, and not in
+# --help — the one place a person who ran the installer would look. Same rule
+# as README's keys reference: the list is checked, not trusted, because
+# helpers are meant to keep arriving and the help text is where they go stale.
+run "$REPO_ROOT/bin/nanolander" --help
+for script in "$REPO_ROOT"/bin/*; do
+  name=$(basename "$script")
+  [ "$name" = "nanolander" ] && continue
+  chk "--help names $name" "$(yn grep -Fq "bin/$name" "$out")" "y"
+done
+
 finish

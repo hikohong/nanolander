@@ -230,6 +230,8 @@ COMPANION SCRIPTS:
                      normal run installs it; call it directly to report what
                      would change (it reports by default, writes with --apply).
   ./bin/iterm-tune   iTerm2 performance tuning, macOS only.
+  ./bin/vlc-default  VLC as the default video player instead of QuickTime,
+                     macOS only. Reports by default, writes with --apply.
 
 UNDOING A RUN:
   Shell config files are copied into ~/.nanolander-backups the first time a
