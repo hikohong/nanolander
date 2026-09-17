@@ -51,14 +51,47 @@ jobs:
 
       # macOS still ships bash 3.2. These constructs would work on the runner
       # and fail there, which is the worst kind of breakage to ship.
+      # The suites run on the macOS runner too, so they are held to the same
+      # bar as the scripts they drive — a bash 4 construct in a test fails on
+      # exactly the platform the test was meant to cover.
       - name: Reject bash 4+ constructs
         run: |
           if grep -nE 'declare -A|local -A|mapfile|readarray|\$\{[A-Za-z_]+,,|\$\{[A-Za-z_]+\^\^|\|&' \
-               bin/* \
+               bin/* tests/*.sh \
              | grep -v '^\S*:[0-9]*:#'; then
             echo "bash 4+ construct found; macOS ships bash 3.2" >&2
             exit 1
           fi
+
+      # The Neovim configuration is a third of this repository by line count
+      # and nothing checked it: a typo in share/nvim/lua reached main and only
+      # showed up as an error on the next editor start. Neovim runs LuaJIT,
+      # whose syntax is 5.1, so lua5.1's compiler is the right parser — and it
+      # is a 200 KB apt package rather than a Neovim build.
+      #
+      # A glob, not a list: the same reason ShellCheck takes bin/* above.
+      - name: Install Lua 5.1
+        run: |
+          if command -v luac5.1 >/dev/null 2>&1; then
+            luac5.1 -v
+            exit 0
+          fi
+          sudo apt-get update -qq || true
+          sudo apt-get install -y lua5.1
+
+      - name: Parse every Lua file
+        run: |
+          found=0
+          for f in $(find share -name '*.lua' | sort); do
+            luac5.1 -p "$f" || exit 1
+            found=$((found + 1))
+          done
+          # A find that matches nothing would otherwise pass this step in
+          # silence, which is the failure mode this repository keeps hitting:
+          # the check ran, the answer meant nothing was there, and nothing
+          # asked which. Same rule as command_works.
+          [ "$found" -gt 0 ] || { echo "no Lua files found to parse" >&2; exit 1; }
+          echo "$found Lua files parse"
 
   test:
     name: Test suites

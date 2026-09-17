@@ -54,7 +54,7 @@ rather than one-offs.
 ├── README.md              ← the specification, in English; keep it true
 ├── LICENSE                ← MIT
 ├── bin/
-│   ├── nanolander         ← the main installer (bash 3.2, ~1900 lines)
+│   ├── nanolander         ← the main installer (bash 3.2, ~2400 lines)
 │   ├── nvim-land          ← installs the Neovim config, macOS + Linux
 │   ├── iterm-tune         ← iTerm2 performance tuning, macOS only
 │   └── vlc-default        ← VLC as the default video player, macOS only
@@ -132,6 +132,15 @@ platform.
   `~/.local/share/nanolander/installed`, and only under `~/.local`. It never
   removes system packages, and never touches the Homebrew line in
   `~/.zprofile`.
+- **Text goes through `printf '%s\n'`, never as the format string itself.**
+  A format that starts with a dash is an *option* to bash's printf builtin:
+  `printf '--without-nvim-config…\n'` answered `printf: --: invalid option` on
+  stderr and printed nothing, so `--list-tools` ended mid-sentence on every
+  platform. The builtin's failure is not the function's, so the exit status
+  stayed 0 and the consistency job — which reads the first line of that same
+  command — passed through sixteen merged pull requests. The two rules that
+  follow from it: put the text in an argument, and let a check look at stderr
+  (`test-entry-points.sh`).
 - **The log is the screen.** `~/nanolander-YYYYMMDD-HHMMSS.log` is a
   byte-for-byte copy of stdout, which is why the output helpers emit plain text
   with no ANSI colour. `grep '== Installing yq =='` on the log must keep working.
@@ -153,6 +162,14 @@ platform.
 - **CI is the only gate.** Every change lands through an auto-merged PR, so
   `.github/workflows/ci.yml` is what stands between a broken script and `main`.
   Do not add a change without running `./tests/run.sh` first.
+- **Every Lua file under `share/` is parsed by CI**, with `luac5.1 -p` — Neovim
+  runs LuaJIT, whose syntax is 5.1, and lua5.1's compiler is a 200 KB apt
+  package rather than a Neovim build. `lua/hikovim/` is a third of the
+  repository by line count and was unchecked for its first 4474 lines: a typo
+  there reaches `main` and only appears as an error on the next editor start.
+  The step globs `share` and fails when the glob matches nothing — a check that
+  ran, found nothing and said so in silence is the recurring failure here.
+  Anything needing more than a parse still needs a real Neovim; see Testing.
 - **Exit codes are API**: `0` all good · `1` environment prep failed · `2` some
   tools failed · `64` bad arguments · `130` interrupted.
 
@@ -571,12 +588,20 @@ Follow `bin/iterm-tune`:
 shellcheck -S style bin/* tests/*.sh   # must be silent
 ```
 
-`tests/README.md` lists what each suite covers. The six that exist because
+`tests/README.md` lists what each suite covers. The seven that exist because
 of shipped bugs — the `linux_arm` mismatch, the dropped last asset, the
 same-second backup collision, an rc file chosen from the platform instead
 of the login shell, **a run that stopped after the first tool it installed**,
-and **a completion script installed as the binary and reported verified** —
+**a completion script installed as the binary and reported verified**, and
+**`--list-tools` truncated by a format string that began with a dash** —
 are the ones to keep when refactoring.
+
+`test-entry-points.sh` is the cheapest of them and the one to extend: it drives
+`bin/*` as a glob and asserts that `--help`, `--version` and `--list-tools`
+print on stdout, say **nothing on stderr**, and exit 0, and that an unknown
+option is 64. A helper added to `bin/` is covered by it the moment it lands,
+and the stderr assertion is the only thing in the repository that looks at that
+stream at all.
 
 The suites need no network, no root and no particular platform: `github_api`
 is overridden to emit a fixture and asset URLs point at `file://` paths, which
@@ -588,8 +613,8 @@ would run its `export HOME` inside a subshell and leave the suite writing into
 the real home directory — which is how it was first written, and what the
 companions suite caught.
 
-`NANOLANDER_LIB=1`, `ITERM_TUNE_LIB=1` and `NVIM_LAND_LIB=1` source each script
-without running it.
+`NANOLANDER_LIB=1`, `ITERM_TUNE_LIB=1`, `NVIM_LAND_LIB=1` and `VLC_DEFAULT_LIB=1`
+source each script without running it.
 
 A real Neovim load is still worth checking by hand after any change to layer 1
 or 2, because no suite can:

@@ -28,8 +28,9 @@ adds them up and exits non-zero if anything failed.
 | `test-payload-pick.sh` | which file inside an archive gets installed, and whether a version query proves anything |
 | `test-picture-preview.sh` | what opening a picture shows: the formats, the one conversion flag by flag, the frame and page lines, APNG detection, and several files of one extension in one session |
 | `test-readme-keys.sh` | every mapping and command the Neovim configuration defines — in `keys.lua`, `ide.lua` and the plugin specs alike — is written down in README.md's keys reference |
+| `test-entry-points.sh` | what every script in `bin/` does when asked to explain itself: `--help`, `--version` and `--list-tools` print on stdout, say nothing on stderr and exit 0, and an unknown option is 64 |
 
-Thirteen of these exist because of a way asset selection, a write, or a run
+Fourteen of these exist because of a way asset selection, a write, or a run
 goes wrong:
 
 - an `arm64` host was handed a `linux_arm` build, so `select_asset` matches a
@@ -92,7 +93,16 @@ goes wrong:
   — it answers `E5600` — so the terminal pane got an error instead of a file
 - `pending_count` counted `lazy-lock.json`, so `--freeze` refused to run in the
   one situation it exists for and no plugin could ever be added
-
+- `--list-tools` stopped mid-sentence on every platform, for sixteen merged
+  pull requests. Its last line was
+  `printf '--without-nvim-config, or run ./bin/nvim-land on its own.\n'`, and a
+  format string starting with a dash is an *option* to bash's printf builtin:
+  it answered `printf: --: invalid option` on stderr and printed nothing. The
+  exit status stayed 0, because the builtin's failure is not the function's,
+  so the consistency job — which reads the first line of that same command —
+  passed throughout. Nothing had ever looked at stderr.
+  `test-entry-points.sh` asserts that every informational command leaves
+  stderr empty, and that this sentence in particular reaches the screen whole.
 - `join` in the video preview walked its parts with `ipairs` over a table that
   had holes in it. ffprobe leaves gaps — a file with a codec but no resolution
   gives `(nil, 'theora', nil)` — and `ipairs` stops at the first `nil`, so the
